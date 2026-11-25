@@ -7,11 +7,14 @@ import 'dart:typed_data';
 import 'package:androidtv_direct/src/clock.dart';
 import 'package:androidtv_direct/src/errors.dart';
 import 'package:androidtv_direct/src/identity/client_identity.dart';
+import 'package:androidtv_direct/src/protocol/key_codes.dart';
 import 'package:androidtv_direct/src/protocol/proto.dart';
 import 'package:androidtv_direct/src/protocol/remote_messages.dart';
 import 'package:androidtv_direct/src/remote/features.dart';
+import 'package:androidtv_direct/src/remote/keys.dart';
 import 'package:androidtv_direct/src/remote/session.dart';
 import 'package:androidtv_direct/src/remote/state.dart';
+import 'package:androidtv_direct/src/remote/volume.dart' as volume;
 import 'package:androidtv_direct/src/trace.dart';
 import 'package:androidtv_direct/src/transport/tv_socket.dart';
 
@@ -78,6 +81,7 @@ final class TvRemote {
   }
 
   final RemoteSession _session;
+  late final KeyHolds _holds = KeyHolds(_session);
 
   /// The TV, as it described itself when the session started.
   TvDevice get device => _session.device;
@@ -97,6 +101,46 @@ final class TvRemote {
   /// Whether the session has ended.
   bool get isClosed => _session.isClosed;
 
+  /// Presses and releases [key] once.
+  ///
+  /// Throws [TvNotSupportedException] when the session lacks [TvFeature.key], [RangeError] for [TvKey.unknown] (code
+  /// 0, not a key), and what ended the session once it has ended. TVs seen so far ignore keys they do not know.
+  void press(TvKey key) => sendKey(_session, key.code, TvKeyAction.press);
+
+  /// Sends key [code] with [action]: for Android key codes the [TvKey] table does not have (1 to 999). Throws as
+  /// [press], and [RangeError] for another code. A key sent down this way is the caller's to send up; [holdCode]
+  /// tracks it instead.
+  void sendKeyCode(int code, {TvKeyAction action = TvKeyAction.press}) => sendKey(_session, code, action);
+
+  /// Holds [key] down: the TV repeats it, as for a held button, until [TvKeyHold.release]. Closing the session
+  /// releases it. Throws as [press].
+  TvKeyHold hold(TvKey key) => _holds.start(key.code);
+
+  /// Holds key [code] (1 to 999) down, as [hold] does. Throws as [sendKeyCode].
+  TvKeyHold holdCode(int code) => _holds.start(code);
+
+  /// Opens [link] on the TV: a deep link or a web address that an app on the TV handles (`https://www.youtube.com`,
+  /// `market://details?id=…`). A link no app handles does nothing.
+  ///
+  /// TVs refuse a bare package name and some link forms (`intent:`, `market://launch`) and then **end the session**:
+  /// [done] completes with [TvLinkRefusedException]; connect again to go on. Throws [ArgumentError] for an empty link
+  /// or one over 8192 bytes in UTF-8, [TvNotSupportedException] without [TvFeature.appLink], and what ended the
+  /// session once it has ended.
+  void openLink(String link) => sendLink(_session, link);
+
+  /// Brings the volume to [level] (0 to the reported maximum) with volume keys, waiting for the TV's report after
+  /// each (the emulator ignored a level sent directly). Mute is left as it is.
+  ///
+  /// Throws [TvNotSupportedException] without [TvFeature.key] or [TvFeature.volume], or before the TV reported its
+  /// volume; [RangeError] for a level out of range; [TvTimeoutException] when a report does not come within
+  /// [stepTimeout] or the level is not reached within [timeout]; [TvCancelledException] when a newer [setVolume]
+  /// takes over; and what ended the session if it ends meanwhile.
+  Future<void> setVolume(
+    int level, {
+    Duration stepTimeout = const Duration(seconds: 2),
+    Duration timeout = const Duration(seconds: 15),
+  }) => volume.setVolume(_session, level, stepTimeout: stepTimeout, timeout: timeout);
+
   /// Every message from the TV as raw bytes, for messages this package does not handle yet. Experimental: the shape
   /// may change in a minor version.
   Stream<TvRawMessage> get rawMessages =>
@@ -104,6 +148,9 @@ final class TvRemote {
 
   /// Sends a message this package does not offer yet: [body] in envelope field [field]. Experimental: the shape may
   /// change in a minor version. Throws what ended the session once it has ended.
+  ///
+  /// A TV refuses a field it does not know, or a malformed message, and ends the session ([done] completes with
+  /// [TvProtocolException]).
   void sendRaw(int field, List<int> body) {
     final envelope = (ProtoWriter()..bytes(field, body)).toBytes();
     _session.sendBytes(envelope, kind: _kindOf(envelope, field));
@@ -119,8 +166,14 @@ final class TvRemote {
     }
   }
 
-  /// Ends the session. Does nothing once it has ended.
-  Future<void> close() => _session.close();
+  /// Ends the session, releasing held keys first. Does nothing once it has ended.
+  Future<void> close() async {
+    try {
+      _holds.releaseAll();
+    } finally {
+      await _session.close();
+    }
+  }
 }
 
 /// One message of the remote session as it was on the wire.

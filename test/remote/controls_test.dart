@@ -1,0 +1,185 @@
+// Copyright 2026 The androidtv_direct authors
+// SPDX-License-Identifier: Apache-2.0
+
+import 'dart:io';
+
+import 'package:androidtv_direct/androidtv_direct.dart';
+import 'package:androidtv_direct/src/protocol/remote_messages.dart';
+import 'package:test/test.dart';
+
+import '../support/fake_clock.dart';
+import '../support/fake_session.dart';
+import '../support/fake_tv.dart';
+import '../support/fixtures.dart';
+import '../support/hex.dart';
+import '../support/wait.dart';
+
+void main() {
+  late FakeSession fake;
+  late FakeClock clock;
+
+  Future<TvRemote> connect({Set<TvFeature> features = TvFeature.defaults}) async {
+    fake = FakeSession();
+    clock = FakeClock();
+    final tv = await startFakeTv(onRemote: fake.serve);
+    final remote = await TvRemote.connect(
+      InternetAddress.loopbackIPv4,
+      port: tv.remotePort,
+      identity: testClient(),
+      fingerprint: null,
+      features: features,
+      clock: clock,
+    );
+    addTearDown(remote.close);
+    return remote;
+  }
+
+  /// The client's messages of type [T], once [count] of them arrived.
+  Future<List<T>> sent<T>(int count) async {
+    await until(() => fake.fromClient.whereType<T>().length >= count);
+    return fake.fromClient.whereType<T>().toList();
+  }
+
+  group('keys', () {
+    test('press sends the key as the recording has it', () async {
+      final remote = await connect();
+      remote.press(TvKey.volumeUp);
+      final [key] = await sent<KeyMessage>(1);
+      expect(hex(key.encodeEnvelope()), hex(sessionMessage('key', outgoing: true)));
+    });
+
+    test('any code from 1 to 999, with any action', () async {
+      final remote = await connect();
+      remote
+        ..sendKeyCode(999, action: TvKeyAction.down)
+        ..sendKeyCode(1, action: TvKeyAction.up);
+      final keys = await sent<KeyMessage>(2);
+      expect(keys.map((k) => (k.code, k.action)), [(999, KeyAction.press), (1, KeyAction.release)]);
+      expect(() => remote.sendKeyCode(0), throwsRangeError);
+      expect(() => remote.sendKeyCode(1000), throwsRangeError);
+    });
+
+    test('a held key goes down, and up once, also when the session closes', () async {
+      final remote = await connect();
+      final first = remote.hold(TvKey.dpadDown);
+      first
+        ..release()
+        ..release();
+      final second = remote.holdCode(TvKey.dpadUp.code);
+      await remote.close();
+      expect(second.isReleased, isTrue);
+      final keys = await sent<KeyMessage>(4);
+      expect(keys.map((k) => (k.code, k.action)), [
+        (TvKey.dpadDown.code, KeyAction.press),
+        (TvKey.dpadDown.code, KeyAction.release),
+        (TvKey.dpadUp.code, KeyAction.press),
+        (TvKey.dpadUp.code, KeyAction.release),
+      ]);
+    });
+
+    test('a session without the key feature refuses keys before sending', () async {
+      final remote = await connect(features: {TvFeature.volume});
+      expect(() => remote.press(TvKey.home), throwsA(isA<TvNotSupportedException>()));
+      expect(() => remote.hold(TvKey.home), throwsA(isA<TvNotSupportedException>()));
+    });
+
+    test('keys after the end throw why it ended', () async {
+      final remote = await connect();
+      await remote.close();
+      expect(() => remote.press(TvKey.home), throwsA(isA<TvCancelledException>()));
+    });
+  });
+
+  group('links', () {
+    test('a link goes out as the recording has it', () async {
+      final remote = await connect();
+      remote.openLink('https://www.youtube.com');
+      final [link] = await sent<OpenLinkMessage>(1);
+      expect(hex(link.encodeEnvelope()), hex(sessionMessage('openLink', outgoing: true)));
+    });
+
+    test('an empty or overlong link is refused before sending', () async {
+      final remote = await connect();
+      expect(() => remote.openLink(''), throwsArgumentError);
+      expect(() => remote.openLink('x' * 8193), throwsArgumentError);
+      expect(() => remote.openLink('я' * 4097), throwsArgumentError, reason: '8194 bytes in UTF-8');
+      expect(() => remote.openLink('x' * 8192), returnsNormally);
+    });
+
+    test('a bare package name is refused by the TV, which ends the session', () async {
+      final remote = await connect();
+      remote.openLink('com.android.tv.settings');
+      expect(await remote.done, isA<TvLinkRefusedException>().having((e) => e.link, 'link', 'com.android.tv.settings'));
+    });
+
+    test('a session without the app link feature refuses links', () async {
+      final remote = await connect(features: {TvFeature.key});
+      expect(() => remote.openLink('https://www.youtube.com'), throwsA(isA<TvNotSupportedException>()));
+    });
+  });
+
+  group('volume', () {
+    test('setVolume presses keys until the reported level matches, up and down', () async {
+      final remote = await connect();
+      await until(() => remote.state.volume != null);
+      await remote.setVolume(12);
+      expect(remote.state.volume!.level, 12);
+      await remote.setVolume(10);
+      expect(remote.state.volume!.level, 10);
+      final keys = await sent<KeyMessage>(5);
+      expect(keys.map((k) => k.code), [24, 24, 24, 25, 25]);
+    });
+
+    test('a newer call takes over from an older one', () async {
+      final remote = await connect();
+      await until(() => remote.state.volume != null);
+      fake.answerVolumeKeys = false;
+      final older = expectLater(remote.setVolume(12), throwsA(isA<TvCancelledException>()));
+      await sent<KeyMessage>(1);
+      fake.answerVolumeKeys = true;
+      await remote.setVolume(8);
+      await older;
+      expect(remote.state.volume!.level, 8);
+    });
+
+    test('a session without keys cannot set the volume', () async {
+      final remote = await connect(features: {TvFeature.volume});
+      await until(() => remote.state.volume != null);
+      expect(() => remote.setVolume(10), throwsA(isA<TvNotSupportedException>()));
+    });
+
+    test('a level out of range is refused', () async {
+      final remote = await connect();
+      await until(() => remote.state.volume != null);
+      expect(() => remote.setVolume(16), throwsRangeError);
+      expect(() => remote.setVolume(-1), throwsRangeError);
+    });
+
+    test('a TV that does not report the change times out', () async {
+      final remote = await connect();
+      await until(() => remote.state.volume != null);
+      fake.answerVolumeKeys = false;
+      final outcome = remote.setVolume(12);
+      // The step's deadline is set before the key goes out.
+      await sent<KeyMessage>(1);
+      clock.advance(const Duration(seconds: 2));
+      await expectLater(outcome, throwsA(isA<TvTimeoutException>()));
+    });
+
+    test('a session that ends while setting throws why it ended', () async {
+      final remote = await connect();
+      await until(() => remote.state.volume != null);
+      fake.answerVolumeKeys = false;
+      final outcome = expectLater(remote.setVolume(12), throwsA(isA<TvCancelledException>()));
+      await sent<KeyMessage>(1);
+      await remote.close();
+      await outcome;
+    });
+  });
+
+  test('an unknown raw message is refused by the TV, which ends the session', () async {
+    final remote = await connect();
+    remote.sendRaw(99, const [8, 1]);
+    expect(await remote.done, isA<TvProtocolException>());
+  });
+}

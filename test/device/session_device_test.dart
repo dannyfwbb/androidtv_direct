@@ -17,11 +17,7 @@ void main() {
     late TvClientIdentity identity;
     late String fingerprint;
 
-    setUpAll(() async {
-      identity = await TvClientIdentity.generate(now: DateTime.now());
-      final pairing = await TvPairing.start(TestTv.host!, identity: identity, clientName: 'androidtv_direct test');
-      fingerprint = (await pairing.finish(await TestTv.waitForCode())).fingerprint;
-    });
+    setUpAll(() async => (identity, fingerprint) = await TestTv.pairFresh());
 
     Future<TvRemote> connect({TvClientIdentity? as, String? pin, TvTracer? tracer}) =>
         TvRemote.connect(TestTv.host!, identity: as ?? identity, fingerprint: pin ?? fingerprint, tracer: tracer);

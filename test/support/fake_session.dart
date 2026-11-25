@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import 'dart:async';
+import 'dart:typed_data';
 
+import 'package:androidtv_direct/androidtv_direct.dart';
 import 'package:androidtv_direct/src/protocol/remote_messages.dart';
 
 import 'fake_tv.dart';
@@ -49,9 +51,53 @@ final class FakeSession {
       if (bytes == null) return;
       final message = RemoteEnvelope.fromClient(bytes);
       fromClient.add(message);
-      if (message is SetupMessage) send(c, ActivateMessage().encodeEnvelope());
-      if (message is ActivateMessage && fault != SessionFault.noPower) _startReports(c);
+      if (!await _react(c, message, bytes)) return;
     }
+  }
+
+  /// Whether the volume keys change [volume] and report it, as a TV does. Off to test a TV that does not answer.
+  bool answerVolumeKeys = true;
+
+  /// The level the volume keys move, from the recorded start report; the maximum stays the recorded one.
+  late int volume = _recordedVolume.level!;
+
+  static final VolumeReport _recordedVolume =
+      RemoteEnvelope.fromTv(sessionMessage('volumeReport', outgoing: false)) as VolumeReport;
+
+  /// Answers [message] as the TV does; returns false once the TV closed the connection.
+  Future<bool> _react(FakeTvConnection c, RemoteEnvelope message, List<int> bytes) async {
+    switch (message) {
+      case SetupMessage():
+        send(c, ActivateMessage().encodeEnvelope());
+      case ActivateMessage() when fault != SessionFault.noPower:
+        _startReports(c);
+      case KeyMessage(:final code, :final action) when answerVolumeKeys && action != KeyAction.release:
+        _volumeKey(c, code);
+      case OpenLinkMessage(:final link) when link == null || !link.contains(':'):
+        return _refuse(c, 7, bytes);
+      case UnknownEnvelope():
+        return _refuse(c, 5, bytes);
+      default:
+    }
+    return true;
+  }
+
+  void _volumeKey(FakeTvConnection c, int? code) {
+    final step = switch (code) {
+      _ when code == TvKey.volumeUp.code => 1,
+      _ when code == TvKey.volumeDown.code => -1,
+      _ => 0,
+    };
+    if (step == 0) return;
+    volume = (volume + step).clamp(0, _recordedVolume.maximum!);
+    send(c, VolumeReport(maximum: _recordedVolume.maximum, level: volume, muteState: 0).encodeEnvelope());
+  }
+
+  /// Refuses a message as the TV does: a refusal echoing it, then the connection closes.
+  Future<bool> _refuse(FakeTvConnection c, int code, List<int> bytes) async {
+    send(c, RefusalMessage(code: code, refused: Uint8List.fromList(bytes)).encodeEnvelope());
+    await c.close();
+    return false;
   }
 
   /// Sends [message] to the client now.

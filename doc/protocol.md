@@ -127,7 +127,7 @@ There is no goodbye message; either side closes the socket.
 
 ### Messages
 
-Every message is an envelope that carries exactly one of these fields (the names are this package's). An envelope with no field or with several is malformed; a field number the package does not know is a message it does not know yet, reported to the tracing hook and otherwise ignored.
+Every message is an envelope that carries exactly one of these fields (the names are this package's). An envelope with no field or with several is malformed; a field number the package does not know is a message it does not know yet, reported to the tracing hook and otherwise ignored. The TV is stricter: a field number it does not know gets a refusal (code 5) and the end of the session.
 
 | Field | Message | Direction |
 | --- | --- | --- |
@@ -145,23 +145,23 @@ Every message is an envelope that carries exactly one of these fields (the names
 | 32 | voice close | client → TV |
 | 40 | power report | TV → client |
 | 50 | volume report | TV → client (the same field from the client, a level request, is ignored) |
-| 51 | volume adjust | client → TV (not verified) |
-| 60, 61 | audio output, set and reset | client → TV (not verified) |
+| 51 | volume adjust | client → TV (on the emulator `{1: 2}` raised the volume one step, `{}` and `{1: 1}` did nothing; not used) |
+| 60, 61 | audio output, set and reset | client → TV (accepted empty on the emulator, no visible effect; not used) |
 | 90 | open link | client → TV |
 
 **setup** (1): 1 features; 2 device information: 1 model, 2 vendor, 3 (unknown, 1), 4 Android version (`14`), 5 package of the service, 6 its version. Clients send fields 3-6 of their own.
 
 **activate** (2): from the TV empty; from the client 1 = its features.
 
-**refusal** (3): 1 a number (7 for a refused app link), 2 the refused message, echoed. The TV closes the connection right after a refusal.
+**refusal** (3): 1 a code, 2 the refused message, echoed. The TV closes the connection right after a refusal. Codes seen on the emulator (remote service 7.00): **7** for a message the TV cannot act on (a link it refuses, an empty link, a key without an action or with an unknown one), **5** for a message field it does not know.
 
 **ping** (8) and **pong** (9): the ping carries 1 a small number and 2 a growing one; the pong carries 1 = the ping's field 1.
 
-**key** (10): 1 the Android key code (`KeyEvent`), 2 the action: 1 press, 2 release, 3 short press (both). Between press and release the TV repeats the key as a held button would.
+**key** (10): 1 the Android key code (`KeyEvent`), 2 the action: 1 press, 2 release, 3 short press (both). Between press and release the TV repeats the key as a held button would. On the emulator (remote service 7.00): the action is required (refusal 7 without it); key codes the TV does not know (0, 400, 1000, or none) were ignored silently; the volume report followed a volume key within a few milliseconds.
 
 **power report** (40): 1 = 1 on, 0 off. Sent at the start and whenever the power state changes.
 
-**volume report** (50): 3 the output device's name, 6 maximum, 7 level, 8 muted; fields 1, 2, 4 and 5 describe the audio output and are not interpreted yet. Sent at the start and after every change.
+**volume report** (50): 3 the output device's name, 6 maximum, 7 level, 8 muted; fields 1, 2, 4 and 5 describe the audio output and are not interpreted yet. Sent at the start and after every change. The client may send field 50 with a level (7); the emulator ignored it, so the package sets a level with volume keys.
 
 **open link** (90): 1 the link.
 

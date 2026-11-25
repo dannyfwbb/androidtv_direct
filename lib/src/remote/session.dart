@@ -9,6 +9,7 @@ import 'package:androidtv_direct/src/clock.dart';
 import 'package:androidtv_direct/src/errors.dart';
 import 'package:androidtv_direct/src/protocol/proto.dart';
 import 'package:androidtv_direct/src/protocol/remote_messages.dart';
+import 'package:androidtv_direct/src/remote/features.dart';
 import 'package:androidtv_direct/src/remote/state.dart';
 import 'package:androidtv_direct/src/remote/watchdog.dart';
 import 'package:androidtv_direct/src/transport/tv_socket.dart';
@@ -52,6 +53,25 @@ final class RemoteSession {
 
   /// The feature bits both sides agreed on.
   int granted = 0;
+
+  /// The session's clock.
+  TvClock get clock => _clock;
+
+  /// Throws [TvNotSupportedException] unless the session has [feature], and what ended the session once it has ended.
+  void require(TvFeature feature) {
+    throwIfEnded();
+    if (granted & feature.bit == 0) {
+      throw TvNotSupportedException('The session does not have ${feature.name}', feature: feature.name);
+    }
+  }
+
+  /// Throws what ended the session, once it has ended.
+  void throwIfEnded() {
+    if (_done.isCompleted) throw _endReason ?? _closed;
+  }
+
+  /// Counts `setVolume` calls, so a newer one can stop an older one.
+  int volumeCalls = 0;
 
   /// The latest state.
   TvState state = const TvState();
@@ -97,7 +117,7 @@ final class RemoteSession {
 
   /// Sends an envelope given as bytes. Throws what ended the session once it has ended.
   void sendBytes(Uint8List envelope, {required String kind}) {
-    _checkOpen();
+    throwIfEnded();
     _watchdog?.touch();
     _socket.send(envelope, kind: kind);
   }
@@ -106,11 +126,6 @@ final class RemoteSession {
   Future<void> close() async {
     _end(null);
     await _socket.close();
-  }
-
-  void _checkOpen() {
-    if (!_done.isCompleted) return;
-    throw _endReason ?? _closed;
   }
 
   static const TvCancelledException _closed = TvCancelledException('The session was closed');

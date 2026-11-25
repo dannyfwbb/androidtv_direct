@@ -33,13 +33,13 @@ States: **planned** (designed, not written), **in progress**, **built** (impleme
 
 | Area | State |
 | --- | --- |
-| Keys by name (every AOSP key code) and by number | in progress: the key table is built |
-| Short press, press and release (the TV repeats held keys) | planned |
-| Power state and the power key | in progress: the state is built |
-| Volume state (level, maximum, muted) and volume keys | in progress: the state is built |
-| Setting or adjusting the volume directly, and choosing the audio output | planned (verified first: TVs ignored a level request in tests) |
+| Keys by name (every AOSP key code) and by number | built |
+| Short press, press and release (the TV repeats held keys) | built |
+| Power state and the power key | built |
+| Volume state (level, maximum, muted) and volume keys; setting a level | built |
+| Setting or adjusting the volume directly, and choosing the audio output | not offered: the emulator ignored a level request and the audio-output messages; one form of the adjust message moved the volume a step, which keys already do |
 | Wake-on-LAN with the network address from the TV's certificate | planned (only if real TVs wake from it) |
-| App links (deep links, store pages); a refused link reported as such | planned |
+| App links (deep links, store pages); a refused link reported as such | built |
 
 ### Text
 
