@@ -13,14 +13,14 @@ Not supported:
 
 | Device | Remote service | Result |
 | --- | --- | --- |
-| Google TV emulator, Android 14 | 5.99, 7.00 | Prototype: pairing, session, keys, volume, links, pings. Recordings of both versions are identical apart from the version string |
+| Google TV emulator, Android 14 | 5.99, 7.00 | Prototype: pairing, session, keys, volume, links, pings. The messages recorded from both versions (pairing, session start, volume, app reports) are byte for byte the same apart from the version string |
 
 Real TVs will be listed here as they are tried.
 
 ## Known differences between TVs
 
 - **Text fields**: most fields insert what the client sends at the cursor; some apps' fields replace their content with each edit. The package works from the content the TV reports, so both reach the requested text.
-- **Text edit counters**: some TVs accept edits only with the counters of the field's focus report. The package always uses those.
+- **Text edit revisions**: some TVs accept edits only with the revisions from the field's focus report. The package always uses those.
 - **Voice**: message sizes that work differ between TVs; the package uses a size reported to work widely (20 480 bytes).
 - **Sleep and Wake keys** do nothing on some devices; the power key toggles.
 - **Older TVs (Android 9)**: some reject TLS connections from some clients where Google's own remote app works. Whether this package is affected is not known yet.

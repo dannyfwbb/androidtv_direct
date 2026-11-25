@@ -23,6 +23,7 @@ States: **planned** (designed, not written), **in progress**, **built** (impleme
 | Connect with a paired identity; "not paired" told apart from network trouble | planned |
 | Pinning: refuse a TV whose key is not the paired one, before sending anything | planned |
 | Feature negotiation (keys, text, power, volume, links, voice) | planned |
+| The client's own device information sent to the TV (name, version) | planned |
 | Device information (vendor, model, Android version, service version) | planned |
 | Keepalive answers and detection of a TV that went away (silence in both directions) | planned |
 | Deadlines on connect, start and every step; cancellation | planned |
@@ -36,6 +37,8 @@ States: **planned** (designed, not written), **in progress**, **built** (impleme
 | Short press, press and release (the TV repeats held keys) | planned |
 | Power state and the power key | planned |
 | Volume state (level, maximum, muted) and volume keys | planned |
+| Setting or adjusting the volume directly, and choosing the audio output | planned (verified first: TVs ignored a level request in tests) |
+| Wake-on-LAN with the network address from the TV's certificate | planned (only if real TVs wake from it) |
 | App links (deep links, store pages); a refused link reported as such | planned |
 
 ### Text
@@ -45,6 +48,7 @@ States: **planned** (designed, not written), **in progress**, **built** (impleme
 | The focused text field as state: content, cursor, kind (password, action key), keyboard open or closed | planned |
 | `setText`: bring the TV's field to the given text, any script and emoji | planned |
 | Edits made on the TV with its own remote, reported back | planned |
+| The field's action key (Search, Go, Done…) | planned |
 
 ### Voice
 
@@ -59,7 +63,7 @@ States: **planned** (designed, not written), **in progress**, **built** (impleme
 | mDNS browsing for `_androidtvremote2._tcp`, IPv4 and IPv6 | planned |
 | Recognition of TVs with the older protocol (`_androidtvremote._tcp`) | planned |
 | A hook for platform browsers (iOS, Android) | planned |
-| A helper to probe addresses the app gives (scan policy stays with the app) | planned |
+| A helper to probe addresses the app gives, a few at a time (which addresses stays with the app) | planned |
 
 ### Library qualities
 

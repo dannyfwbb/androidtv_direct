@@ -18,15 +18,15 @@ Everything the TV's remote can: press any key, turn the TV off, type into any fi
 The TV's certificate is self-signed; no authority vouches for it. After pairing, the only proof that a device is "the TV" is that it holds the same key as during pairing.
 
 - `TvPairing.finish` returns the SHA-256 fingerprint of the TV's public key.
-- `TvRemote.connect(fingerprint: …)` compares the key the device presents with it and, if they differ, fails with `wrongTv` **before sending anything**.
-- Without a fingerprint, the connection trusts whatever answers at the address. Addresses on home networks change (DHCP); another device that gets the TV's old address would receive whatever the user types next. Apps should always store and pass the fingerprint.
-- A TV whose remote service data was cleared, or that was reset, has a new key: it fails with `notPaired` or `wrongTv`, and needs a new pairing. Apps should explain this rather than retry.
+- `TvRemote.connect(fingerprint: …)` compares the key the device presents with it during the TLS handshake and, if they differ, fails with `wrongTv` **before sending anything**: the handshake is aborted as soon as the TV's key is seen.
+- The fingerprint is a required argument. Passing `null` is possible, deliberately, and then the connection trusts whatever answers at the address. Addresses on home networks change (DHCP); another device that gets the TV's old address would receive whatever the user types next. Apps should always store and pass the fingerprint.
+- A TV whose remote service data was cleared, or that was reset, is expected to have a new key (not verified yet on real TVs): it then fails with `notPaired` or `wrongTv`, and needs a new pairing. Apps should explain this rather than retry.
 
 ## The client's identity
 
 - The identity is an RSA private key and a certificate. The TV recognises the client by it; whoever has a copy can control every TV paired with it.
 - The package never writes it anywhere: `toPem()` gives it to the app, `fromPem()` takes it back. Store it in the platform's protected storage (Keychain on iOS and macOS; on Android, encrypt it under a key in the Android Keystore; DPAPI or the Credential Manager on Windows; libsecret on Linux) and keep it out of backups that leave the device if that matters to the app.
-- The key cannot live inside a hardware keystore: TLS needs RSA-PSS signatures with parameters Android's Keystore does not offer, and pure Dart signs in software.
+- The key cannot live inside a hardware keystore: `dart:io` needs the private key's bytes to set up TLS, so the key exists in memory while connecting. (Android's Keystore would not help anyway for this protocol: the TLS handshake needs RSA-PSS signatures with parameters it does not offer.)
 - One identity can serve any number of TVs. Separate identities per TV are possible and limit what one stolen key controls.
 
 ## Addresses

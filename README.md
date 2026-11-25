@@ -2,7 +2,7 @@
 
 A remote control for Android TV and Google TV devices in pure Dart. It speaks the TV's own remote protocol (the one Google's TV remote apps use) directly: no app on the TV, no developer options, no ADB, no platform channels, no native code. One `dart:io` implementation for Android, iOS, macOS, Windows and Linux.
 
-> **Status: in development, not yet published.** The protocol research and the design are done, and a prototype has paired with and driven a TV; the package's code is being written. [doc/scope.md](doc/scope.md) shows the state of every area. The API below is the planned one and may still change before 0.1.0.
+> **Status: in development, not yet published.** The protocol research and the design are done, and a prototype has paired with and driven the Android TV emulator; the package's code is being written. [doc/scope.md](doc/scope.md) shows the state of every area. The API below is the planned one and may still change before 0.1.0.
 
 ```dart
 import 'package:androidtv_direct/androidtv_direct.dart';
@@ -34,20 +34,20 @@ Everything the TV's remote protocol offers:
 - **Pairing** with the six-character code the TV shows; a mistyped code is caught before anything is sent, and the attempt stays open for another try.
 - **Keys**: every Android key code (D-pad, Home, Back, media, channels, inputs, numbers, function keys…), as a short press or held down with the TV's own auto-repeat.
 - **Power and volume**: the TV's power state and volume (level, maximum, muted) as they change; power and volume keys.
-- **Text**: the text field that has the focus on the TV, as state: its content, cursor and kind (password, search…), and `setText` that brings the TV's field to the given text, also with emoji and any script.
+- **Text**: the text field that has the focus on the TV, as state: its content, cursor and kind (password, search…), `setText` that brings the TV's field to the given text, also with emoji and any script, and the field's action key (Search, Done…).
 - **App links**: open a deep link or a store page on the TV.
 - **Voice**: stream 16-bit PCM audio from the app's microphone to the TV's voice search.
 - **Discovery**: an mDNS browser for TVs that announce the remote service, a hook for platform browsers, and recognition of TVs whose remote service is too old.
 - **Device identity**: model and network address details from the TV's certificate, before pairing.
 
-And what a library needs beyond that: the TV's key pinned on every connection so typed text cannot go to another device that took the TV's address; one sealed exception type with stable codes; deadlines on every step; detection of TVs that went away without closing the connection; no files, no global state; tracing that never logs typed text unless asked to.
+And what a library needs beyond that: the TV's key checked on every connection against the one stored at pairing (a required argument), so typed text cannot go to another device that took the TV's address; one sealed exception type with stable codes; deadlines on every step; detection of TVs that went away without closing the connection; no files, no global state; tracing that never logs typed text unless asked to.
 
 ## Platforms
 
 Android, iOS, macOS, Windows and Linux: everything with `dart:io`, from Dart or Flutter. Not the web, where browsers open no raw TLS sockets.
 
 - **Android** apps need the `INTERNET` permission; mDNS discovery also needs a multicast lock held by the app.
-- **iOS** apps need the Local Network permission (`NSLocalNetworkUsageDescription`) and must list `_androidtvremote2._tcp` under `NSBonjourServices` to browse. Browsing mDNS from Dart needs Apple's multicast entitlement; without it, browse with the platform's browser and pass the results in.
+- **iOS** apps need the Local Network permission (`NSLocalNetworkUsageDescription`) and must list `_androidtvremote2._tcp` (and `_androidtvremote._tcp`, to recognise TVs with an outdated service) under `NSBonjourServices` to browse. Browsing mDNS from Dart needs Apple's multicast entitlement; without it, browse with the platform's browser and pass the results in.
 - TVs need Google's Android TV Remote Service, which comes with most Android TV and Google TV devices. TVs without Google's services (and Fire TV devices) do not have it.
 
 ## Documentation
