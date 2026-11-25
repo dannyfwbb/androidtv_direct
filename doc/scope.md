@@ -10,11 +10,11 @@ States: **planned** (designed, not written), **in progress**, **built** (impleme
 
 | Area | State |
 | --- | --- |
-| The client's RSA key and self-signed certificate: generate, export and import as PEM | planned |
+| The client's RSA key and self-signed certificate: generate, export and import as PEM | built |
 | Pairing with the six-character code the TV shows; the code checked before anything is sent | planned |
-| The TV's key fingerprint from pairing, for pinning | planned |
+| The TV's key fingerprint from pairing, for pinning | in progress: computed from the TV's certificate; pairing follows |
 | Cancelling a pairing (the TV closes its dialog) | planned |
-| What the TV's certificate says (model, network address details) without pairing, if it shows nothing on the TV | planned (verified first) |
+| What the TV's certificate says (model, network address details) without pairing, if it shows nothing on the TV | in progress: the certificate is read; the probe that fetches it follows (verified first) |
 
 ### The session
 

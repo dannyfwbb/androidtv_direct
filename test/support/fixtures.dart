@@ -4,6 +4,9 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:androidtv_direct/src/crypto/pem.dart';
+import 'package:androidtv_direct/src/crypto/rsa.dart';
+
 import 'hex.dart';
 
 /// One line of `test/fixtures/remote/messages.txt`.
@@ -29,6 +32,12 @@ RecordedMessage _parse(String line) {
 
 /// A test identity from `test/fixtures/identities/`: the certificate and the private key, as PEM.
 typedef TestIdentity = ({String certificatePem, String privateKeyPem});
+
+/// The DER of the single PEM block in the fixture file at [path].
+Uint8List pemFixtureDer(String path) => Pem.decode(File(fixturePath(path)).readAsStringSync()).single.der;
+
+/// The private key of the test identity called [name].
+RsaPrivateKey testKey(String name) => RsaPrivateKey.fromPkcs8(Pem.decode(testIdentity(name).privateKeyPem).single.der);
 
 /// The test identity called [name] (`tv`, `client` or `other`).
 TestIdentity testIdentity(String name) {

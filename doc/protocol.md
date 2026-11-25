@@ -17,7 +17,7 @@ The service on the TV is the Android TV Remote Service (`com.google.android.tv.r
 ## TLS
 
 - Both sides present certificates. The TV's is self-signed (subject `CN=atvremote/…`), RSA-2048, and the same on both ports. Nothing can verify it against a certificate authority: pairing binds it to the code on the screen, and the client pins it afterwards (see [security.md](security.md)).
-- The client's certificate carries an RSA key (the pairing secret hashes RSA numbers, so other key types cannot pair). It must be marked as a CA (basic constraints); a TV pairs with a certificate without that flag but then refuses it on the remote port.
+- The client's certificate carries an RSA key (the pairing secret hashes RSA numbers, so other key types cannot pair). The package marks it as a CA (basic constraints): a remote service has been seen to pair with a certificate without that flag and then refuse it on the remote port, though current versions accept it. TVs do not check the certificate's dates.
 - A client certificate the TV does not know: TLS 1.3 completes from the client's point of view, and the TV's refusal arrives as an alert on the client's first read (`certificate unknown`). Some older TVs have been reported to fail the handshake instead; whether that means "not paired" or a TLS incompatibility is not known yet.
 - The remote port refuses connections that arrive from the TV's own loopback address (as a port forward through the TV would). Pairing accepts them.
 
