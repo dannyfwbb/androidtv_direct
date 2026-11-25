@@ -45,7 +45,7 @@ Fields are written in ascending field number, as every message recorded from the
 | 40 | Secret |
 | 41 | Secret acknowledgement |
 
-The published protocol carries the inner message's type in field 3 and its bytes in field 4. Version 2 puts each inner message directly into the field numbered after its type, as in the table.
+The published protocol carries the inner message's type in field 3 and its bytes in field 4. Version 2 puts each inner message directly into the field numbered after its type, as in the table. The Android TV emulator (remote service 7.00) answers a message in the published form with status 400.
 
 ### Inner messages
 
@@ -69,6 +69,12 @@ Encoding types: 0 unknown, 1 alphanumeric, 2 numeric, 3 hexadecimal, 4 QR code. 
 | options: input hexadecimal, 6 symbols, role input | options: output hexadecimal, 6 symbols, role input |
 | configuration: hexadecimal, 6 symbols, role input | acknowledgement; **the TV shows six characters**, e.g. `76BBF0`, and "Enter the following code on your *client name*…" |
 | secret | acknowledgement echoing the secret; the TV closes the dialog |
+
+Seen on the Android TV emulator (remote service 7.00); not yet confirmed on other TVs:
+
+- The TV accepts other service names than `atvremote`; every client sends that one.
+- The TV serves **one pairing connection at a time**. While one is open (the dialog is up, or a connection was left half-way), a second connection is accepted but its TLS handshake is not answered until the first ends; the package reports that as a timeout. Closing a pairing while the code is shown closes the dialog and frees the port at once; a connection closed earlier in the exchange kept the port busy for up to about two minutes on the emulator.
+- The TV's options offer only output, hexadecimal, six symbols.
 
 ### The secret
 

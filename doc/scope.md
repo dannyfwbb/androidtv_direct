@@ -11,10 +11,10 @@ States: **planned** (designed, not written), **in progress**, **built** (impleme
 | Area | State |
 | --- | --- |
 | The client's RSA key and self-signed certificate: generate, export and import as PEM | built |
-| Pairing with the six-character code the TV shows; the code checked before anything is sent | planned |
-| The TV's key fingerprint from pairing, for pinning | in progress: computed from the TV's certificate; pairing follows |
-| Cancelling a pairing (the TV closes its dialog) | planned |
-| What the TV's certificate says (model, network address details) without pairing, if it shows nothing on the TV | in progress: the certificate is read; the probe that fetches it follows (verified first) |
+| Pairing with the six-character code the TV shows; the code checked before anything is sent | built |
+| The TV's key fingerprint from pairing, for pinning | built |
+| Cancelling a pairing (the TV closes its dialog) | built |
+| What the TV's certificate says (model, network address details) without pairing, if it shows nothing on the TV | built (nothing appears on the TV) |
 
 ### The session
 
@@ -26,7 +26,7 @@ States: **planned** (designed, not written), **in progress**, **built** (impleme
 | The client's own device information sent to the TV (name, version) | planned |
 | Device information (vendor, model, Android version, service version) | planned |
 | Keepalive answers and detection of a TV that went away (silence in both directions) | planned |
-| Deadlines on connect, start and every step; cancellation | planned |
+| Deadlines on connect, start and every step; cancellation | in progress: pairing has them |
 | Raw access to messages the package does not wrap yet | in progress: unknown messages are read and kept |
 
 ### Remote control

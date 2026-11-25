@@ -2,14 +2,27 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:androidtv_direct/src/protocol/frame.dart';
+import 'package:test/test.dart';
 
 import 'fixtures.dart';
 import 'hex.dart';
+
+/// A fake TV that trusts the test client (`test/fixtures/identities/client.pem`), closed when the test ends.
+Future<FakeTv> startFakeTv({FakeTvHandler? onPairing, FakeTvHandler? onRemote}) async {
+  final tv = await FakeTv.start(
+    trusted: [testIdentity('client').certificatePem],
+    onPairing: onPairing,
+    onRemote: onRemote,
+  );
+  addTearDown(tv.close);
+  return tv;
+}
 
 /// What the fake TV does with one accepted connection.
 typedef FakeTvHandler = Future<void> Function(FakeTvConnection connection);
@@ -156,7 +169,7 @@ final class FakeTvConnection {
   final List<String> _errors;
   late final StreamSubscription<Uint8List> _subscription;
   final FrameReader _reader = FrameReader();
-  final List<Uint8List> _received = [];
+  final Queue<Uint8List> _received = Queue();
   final List<int> _pending = [];
   final Completer<void> _done = Completer();
   Completer<void>? _arrival;
@@ -189,7 +202,7 @@ final class FakeTvConnection {
       timer.cancel();
       _arrival = null;
     }
-    return _received.isEmpty ? null : _received.removeAt(0);
+    return _received.isEmpty ? null : _received.removeFirst();
   }
 
   /// Plays [script] in order. Every step that does not go as written is recorded in [FakeTv.errors], and the
@@ -204,6 +217,9 @@ final class FakeTvConnection {
       }
     }
   }
+
+  /// Hands what [send] gathered to the socket now (in `coalesce` mode sends wait for the next receive or close).
+  void flush() => _flush();
 
   /// Stops reading and writing, as a TV that froze; the socket stays open until [close].
   void freeze() {

@@ -17,11 +17,11 @@ Every failure of an operation on a TV will be a `TvRemoteException`. Parsing inp
 | `linkRefused` | The TV refused an app link; it closes the session right after | Reconnect; use a deep link the app on the TV handles |
 | `outdatedService` | The TV speaks only the older protocol (recognised by discovery from its announcement) | Ask the user to update the Android TV Remote Service on the TV |
 | `notSupported` | The TV did not offer what the call needs (keys, text, voice, links) | Hide the feature for this TV |
-| `timeout` | The connection is open but the TV stopped answering: no message for 16 seconds, or no answer within a step's deadline | Treat the session as lost; reconnect |
+| `timeout` | The connection is open but the TV stopped answering: no message for 16 seconds, no answer within a step's deadline, or no TLS handshake (a TV busy with another pairing) | Treat the session as lost; reconnect. While pairing: make sure no other pairing is open |
 | `closed` | The TV closed the connection | Reconnect |
 | `protocol` | The TV sent something that breaks the protocol; the session is unusable | Reconnect; report it if it repeats |
 | `cancelled` | The app cancelled the operation | — |
 
-A timeout while opening the socket is `unreachable`; `timeout` is reserved for silence after the socket is open, which is what a TV that went away looks like.
+A timeout while opening the TCP connection is `unreachable`; `timeout` is reserved for silence once the TV has accepted the connection, which is what a TV that went away, or one busy with another pairing, looks like.
 
 Codes keep their meaning across versions. A new failure kind arrives as a new subclass with a new code, and only in a major version.

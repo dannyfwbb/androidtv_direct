@@ -28,12 +28,18 @@ Uint8List? parsePairingCode(String code) {
 /// unsigned big-endian bytes without leading zeros; `code[0]` must equal the hash's first byte.
 Uint8List? pairingSecret({required RsaPublicKey client, required RsaPublicKey tv, required Uint8List code}) {
   if (code.length != 3) throw ArgumentError.value(code, 'code', 'must be three bytes');
+  final secret = pairingHash(client: client, tv: tv, nonce: code.sublist(1));
+  return secret[0] == code[0] ? secret : null;
+}
+
+/// The hash a code's [nonce] (its last two bytes) gives between the two keys: the secret, whose first byte is the
+/// code's first byte. A TV shows `hash[0]` followed by the nonce.
+Uint8List pairingHash({required RsaPublicKey client, required RsaPublicKey tv, required List<int> nonce}) {
   final input = BytesBuilder(copy: false)
     ..add(Der.unsignedBytes(client.modulus))
     ..add(Der.unsignedBytes(client.exponent))
     ..add(Der.unsignedBytes(tv.modulus))
     ..add(Der.unsignedBytes(tv.exponent))
-    ..add(code.sublist(1));
-  final secret = Uint8List.fromList(hashes.sha256.convert(input.takeBytes()).bytes);
-  return secret[0] == code[0] ? secret : null;
+    ..add(nonce);
+  return Uint8List.fromList(hashes.sha256.convert(input.takeBytes()).bytes);
 }

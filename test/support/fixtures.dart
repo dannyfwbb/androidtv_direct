@@ -4,6 +4,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:androidtv_direct/androidtv_direct.dart';
 import 'package:androidtv_direct/src/crypto/pem.dart';
 import 'package:androidtv_direct/src/crypto/rsa.dart';
 
@@ -34,10 +35,23 @@ RecordedMessage _parse(String line) {
 typedef TestIdentity = ({String certificatePem, String privateKeyPem});
 
 /// The DER of the single PEM block in the fixture file at [path].
-Uint8List pemFixtureDer(String path) => Pem.decode(File(fixturePath(path)).readAsStringSync()).single.der;
+Uint8List pemFixtureDer(String path) => pemOf(File(fixturePath(path)).readAsStringSync());
+
+/// The DER of the single PEM block in [pem].
+Uint8List pemOf(String pem) => Pem.decode(pem).single.der;
 
 /// The private key of the test identity called [name].
 RsaPrivateKey testKey(String name) => RsaPrivateKey.fromPkcs8(Pem.decode(testIdentity(name).privateKeyPem).single.der);
+
+/// The test identity called [name] as a client identity; the fake TV trusts `client`.
+TvClientIdentity testClient([String name = 'client']) =>
+    TvClientIdentity.fromPem(testIdentity(name).certificatePem + testIdentity(name).privateKeyPem);
+
+/// [code] with its first byte changed, so it fails the check against the keys.
+String codeWithWrongCheckByte(String code) {
+  final first = (int.parse(code.substring(0, 2), radix: 16) + 1) % 256;
+  return first.toRadixString(16).padLeft(2, '0') + code.substring(2);
+}
 
 /// The test identity called [name] (`tv`, `client` or `other`).
 TestIdentity testIdentity(String name) {

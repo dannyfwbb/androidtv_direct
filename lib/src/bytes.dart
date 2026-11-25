@@ -14,5 +14,14 @@ final Random _random = Random.secure();
 /// [length] bytes from the system's secure random source.
 Uint8List randomBytes(int length) => Uint8List.fromList(List.generate(length, (_) => _random.nextInt(256)));
 
+/// Whether [a] holds exactly the bytes of [b].
+bool sameBytes(List<int>? a, List<int> b) {
+  if (a == null || a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
+}
+
 /// [bytes] as lowercase hex, two digits each.
 String hexEncode(List<int> bytes) => bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
