@@ -27,13 +27,13 @@ States: **planned** (designed, not written), **in progress**, **built** (impleme
 | Device information (vendor, model, Android version, service version) | planned |
 | Keepalive answers and detection of a TV that went away (silence in both directions) | planned |
 | Deadlines on connect, start and every step; cancellation | planned |
-| Raw access to messages the package does not wrap yet | planned |
+| Raw access to messages the package does not wrap yet | in progress: unknown messages are read and kept |
 
 ### Remote control
 
 | Area | State |
 | --- | --- |
-| Keys by name (every AOSP key code) and by number | planned |
+| Keys by name (every AOSP key code) and by number | in progress: the key table is built |
 | Short press, press and release (the TV repeats held keys) | planned |
 | Power state and the power key | planned |
 | Volume state (level, maximum, muted) and volume keys | planned |
@@ -69,9 +69,9 @@ States: **planned** (designed, not written), **in progress**, **built** (impleme
 
 | Area | State |
 | --- | --- |
-| One sealed exception type with stable codes | planned |
-| Tracing by message kind and size; payloads only on request | planned |
-| A fake TV and recorded byte exchanges in the tests | planned |
+| One sealed exception type with stable codes | in progress: the type is built, the operations that throw it are not |
+| Tracing by message kind and size; payloads only on request | in progress: the hook is built |
+| A fake TV and recorded byte exchanges in the tests | in progress: every recorded message is read and written back byte for byte; the fake TV runs scripts over TLS |
 | API documentation on every public member | planned |
 
 ## Left to the app, on purpose

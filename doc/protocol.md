@@ -25,7 +25,9 @@ The service on the TV is the Android TV Remote Service (`com.google.android.tv.r
 
 Each message is a Protocol Buffers message preceded by its length as a varint (7 bits per byte, least significant group first, high bit set on all bytes but the last). A message may arrive in several TCP reads, and several messages in one. The package refuses frames longer than 1 MiB and varints longer than 10 bytes.
 
-Only two protobuf wire types occur: varint (0) and length-delimited (2). Unknown fields are skipped, whatever their wire type, so a newer service's additions do not break the client.
+Only two protobuf wire types occur: varint (0) and length-delimited (2). Unknown fields are skipped, whatever their wire type, so a newer service's additions do not break the client; the package keeps them, so a message it reads encodes back to the same bytes. Groups (wire types 3 and 4) are refused as malformed.
+
+Fields are written in ascending field number, as every message recorded from the TV has them. The TV writes some zero values explicitly (a power report of "off", a keyboard report of "closed"); readers treat an absent field and a zero alike.
 
 ## Pairing (port 6467)
 
@@ -119,7 +121,7 @@ There is no goodbye message; either side closes the socket.
 
 ### Messages
 
-Every message is an envelope that carries exactly one of these fields (the names are this package's):
+Every message is an envelope that carries exactly one of these fields (the names are this package's). An envelope with no field or with several is malformed; a field number the package does not know is a message it does not know yet, reported to the tracing hook and otherwise ignored.
 
 | Field | Message | Direction |
 | --- | --- | --- |

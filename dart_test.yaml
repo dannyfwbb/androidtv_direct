@@ -1,0 +1,4 @@
+tags:
+  device:
+    # Needs the Android TV Remote Service on a TV or emulator; see test/device/README.md (phase 4). Skipped unless
+    # ANDROIDTV_DIRECT_TEST_HOST is set.

@@ -1,0 +1,57 @@
+# Checks every push and pull request: formatting, analysis and API docs on Linux; the unit and fixture tests on Linux,
+# macOS and Windows with the current Dart, and on Linux with the oldest Dart the package allows. The device tests skip
+# themselves without a device.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - run: dart pub get
+      - run: dart format --output=none --set-exit-if-changed .
+      - run: dart analyze --fatal-infos
+      - run: dart doc --dry-run
+
+  test:
+    name: test (${{ matrix.os }}, Dart ${{ matrix.sdk }}, chunking ${{ matrix.chunking }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        sdk: [stable]
+        chunking: [none]
+        include:
+          # The lower bound in pubspec.yaml.
+          - os: ubuntu-latest
+            sdk: 3.9.0
+            chunking: none
+          # The fake TV splits what it sends differently (see test/support/fake_tv.dart): the client must not care.
+          - os: ubuntu-latest
+            sdk: stable
+            chunking: coalesce
+          - os: ubuntu-latest
+            sdk: stable
+            chunking: bytes
+    runs-on: ${{ matrix.os }}
+    env:
+      FAKE_TV_CHUNKING: ${{ matrix.chunking }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: ${{ matrix.sdk }}
+      - run: dart pub get
+      - run: dart test
+        timeout-minutes: 15
