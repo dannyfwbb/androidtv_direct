@@ -1,0 +1,18 @@
+androidtv_direct
+Copyright 2026 The androidtv_direct authors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Parts of it follow other projects closely:
+
+- The pairing messages and the pairing secret follow the pairing protocol
+  published in the Android Open Source Project
+  (platform/external/google-tv-pairing-protocol: proto/polo.proto and the
+  Java reference implementation): message layouts, status codes, encodings
+  and the hash over both public keys and the code.
+  Copyright 2009 Google Inc., Apache License 2.0.
+
+- The key table (TvKey) is generated from the Android Open Source Project's
+  key codes (frameworks/native/include/android/keycodes.h): names, values and
+  descriptions.
+  Copyright (C) 2010 The Android Open Source Project, Apache License 2.0.

@@ -1,0 +1,7 @@
+# LF everywhere, also in Windows checkouts.
+* text=auto eol=lf
+
+# Recorded fixtures are compared byte for byte: never convert them.
+test/fixtures/** -text
+*.bin binary
+*.wav binary
