@@ -37,20 +37,25 @@ final class TvClientIdentity {
     return TvClientIdentity._(key, certificate, info);
   }
 
-  /// Makes a new identity: an RSA-2048 key and a certificate with [commonName], valid from [now] for [validity].
+  /// Makes a new identity: an RSA-2048 key and a certificate valid from [now] for [validity].
+  ///
+  /// TVs remember paired clients by the name in their certificate (seen on remote service 7.00): pairing a client whose
+  /// certificate has the same name as an earlier one replaces the earlier one on that TV. The default [commonName] is therefore unique per
+  /// identity (`androidtv_direct/` and 16 random hexadecimal digits); a name given here must be unique as well.
   ///
   /// Generating the key takes a fraction of a second on a desktop, possibly more on a phone; it runs in a separate
-  /// isolate. Throws [ArgumentError] if [validity] is not positive.
+  /// isolate. Throws [ArgumentError] if [validity] is not positive or [commonName] is empty.
   static Future<TvClientIdentity> generate({
     required DateTime now,
-    String commonName = 'androidtv_direct',
+    String? commonName,
     Duration validity = const Duration(days: 3650),
   }) async {
+    if (commonName != null && commonName.isEmpty) throw ArgumentError.value(commonName, 'commonName', 'is empty');
     if (validity <= Duration.zero) throw ArgumentError.value(validity, 'validity', 'must be positive');
     final key = await Isolate.run(RsaPrivateKey.generate);
     final certificate = buildCertificate(
       key,
-      commonName: commonName,
+      commonName: commonName ?? 'androidtv_direct/${hexEncode(randomBytes(8))}',
       serial: _randomSerial(),
       notBefore: now,
       validity: validity,

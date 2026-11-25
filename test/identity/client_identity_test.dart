@@ -8,6 +8,7 @@ import 'package:androidtv_direct/androidtv_direct.dart';
 import 'package:androidtv_direct/src/crypto/der.dart';
 import 'package:androidtv_direct/src/crypto/pem.dart';
 import 'package:androidtv_direct/src/crypto/rsa.dart';
+import 'package:androidtv_direct/src/crypto/x509.dart';
 import 'package:test/test.dart';
 
 import '../support/fake_tv.dart';
@@ -49,6 +50,14 @@ void main() {
 
   test('the certificate bytes cannot be changed from outside', () {
     expect(() => generated.certificateDer[0] = 0, throwsUnsupportedError);
+  });
+
+  test('each identity gets its own certificate name; an empty one is refused', () async {
+    final second = await TvClientIdentity.generate(now: DateTime.utc(2026, 11, 25));
+    String nameOf(TvClientIdentity id) => CertificateInfo.parse(id.certificateDer).attribute(commonNameOid)!;
+    expect(nameOf(generated), matches(RegExp(r'^androidtv_direct/[0-9a-f]{16}$')));
+    expect(nameOf(second), isNot(nameOf(generated)));
+    expect(TvClientIdentity.generate(now: DateTime.utc(2026), commonName: ''), throwsArgumentError);
   });
 
   test('a validity that is not positive is refused', () {

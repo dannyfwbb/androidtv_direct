@@ -20,14 +20,14 @@ States: **planned** (designed, not written), **in progress**, **built** (impleme
 
 | Area | State |
 | --- | --- |
-| Connect with a paired identity; "not paired" told apart from network trouble | planned |
-| Pinning: refuse a TV whose key is not the paired one, before sending anything | planned |
-| Feature negotiation (keys, text, power, volume, links, voice) | planned |
+| Connect with a paired identity; "not paired" told apart from network trouble | built |
+| Pinning: refuse a TV whose key is not the paired one, before sending anything | built |
+| Feature negotiation (keys, text, power, volume, links, voice) | built |
 | The client's own device information sent to the TV (name, version) | planned |
-| Device information (vendor, model, Android version, service version) | planned |
-| Keepalive answers and detection of a TV that went away (silence in both directions) | planned |
-| Deadlines on connect, start and every step; cancellation | in progress: pairing has them |
-| Raw access to messages the package does not wrap yet | in progress: unknown messages are read and kept |
+| Device information (vendor, model, Android version, service version) | built |
+| Keepalive answers and detection of a TV that went away (silence in both directions) | built |
+| Deadlines on connect, start and every step; cancellation | built |
+| Raw access to messages the package does not wrap yet | built (experimental) |
 
 ### Remote control
 
@@ -35,8 +35,8 @@ States: **planned** (designed, not written), **in progress**, **built** (impleme
 | --- | --- |
 | Keys by name (every AOSP key code) and by number | in progress: the key table is built |
 | Short press, press and release (the TV repeats held keys) | planned |
-| Power state and the power key | planned |
-| Volume state (level, maximum, muted) and volume keys | planned |
+| Power state and the power key | in progress: the state is built |
+| Volume state (level, maximum, muted) and volume keys | in progress: the state is built |
 | Setting or adjusting the volume directly, and choosing the audio output | planned (verified first: TVs ignored a level request in tests) |
 | Wake-on-LAN with the network address from the TV's certificate | planned (only if real TVs wake from it) |
 | App links (deep links, store pages); a refused link reported as such | planned |

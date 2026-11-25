@@ -63,5 +63,14 @@ final class CertificateInfo {
   }
 }
 
+/// The fingerprint of the key in a DER certificate, or `null` if the certificate cannot be read.
+String? certificateFingerprint(List<int> der) {
+  try {
+    return CertificateInfo.parse(der).fingerprint;
+  } on FormatException {
+    return null;
+  }
+}
+
 /// The SHA-256 of a DER `SubjectPublicKeyInfo`, lower-case hex.
 String spkiFingerprint(List<int> subjectPublicKeyInfo) => hexEncode(hashes.sha256.convert(subjectPublicKeyInfo).bytes);

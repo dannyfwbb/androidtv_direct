@@ -7,6 +7,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:androidtv_direct/src/clock.dart';
+import 'package:androidtv_direct/src/crypto/x509.dart';
 import 'package:androidtv_direct/src/errors.dart';
 import 'package:androidtv_direct/src/identity/tv_identity.dart';
 import 'package:androidtv_direct/src/protocol/frame.dart';
@@ -35,16 +36,21 @@ final class TvSocket {
   /// not answer in time or has no route, [TvTimeoutException] when the TV accepts the connection but does not finish
   /// the handshake (a TV busy with another pairing does that), [TvProtocolException] when the handshake fails, and
   /// [TvCancelledException] when [cancelOn] completes first.
+  ///
+  /// With [pin], the TV's key must have that fingerprint (see `spkiFingerprint`), or the connection fails with
+  /// [TvWrongTvException]. The check runs inside the TLS handshake, which is aborted on a mismatch before the client's
+  /// certificate goes out; it is repeated once the handshake is done. No message is sent either way.
   static Future<TvSocket> connect(
     Object host,
     int port, {
     required SecurityContext context,
     required Duration timeout,
+    String? pin,
     TvClock clock = TvClock.system,
     TvTracer? tracer,
     Future<void>? cancelOn,
   }) async {
-    final attempt = _Attempt('$host:$port', clock, timeout);
+    final attempt = _Attempt('$host:$port', clock, timeout, pin);
     cancelOn?.whenComplete(attempt.cancel).ignore();
     final socket = TvSocket._(await attempt.open(host, port, context), port, clock, tracer);
     return socket.._note('connected to ${attempt.target}');
@@ -58,6 +64,7 @@ final class TvSocket {
   final Queue<Uint8List> _frames = Queue();
   final Completer<TvRemoteException?> _ended = Completer();
   Completer<void>? _arrival;
+  void Function(Uint8List frame)? _onFrame;
 
   /// The TV's port.
   final int port;
@@ -95,9 +102,20 @@ final class TvSocket {
   /// first (see [done]), and [TvCancelledException] once this side closed it. Only one call may wait at a time.
   Future<Uint8List> receive({required Duration timeout}) async {
     if (_arrival != null) throw StateError('Only one receive at a time');
+    if (_onFrame != null) throw StateError('Frames go to the listener');
     if (_frames.isEmpty && !isClosed) await _waitForFrame(timeout);
     if (_frames.isNotEmpty) return _frames.removeFirst();
     throw await _ended.future ?? const TvCancelledException('The connection was closed from this side');
+  }
+
+  /// Hands every frame, the ones already received first, to [onFrame] from now on, as it arrives. [receive] cannot be
+  /// used afterwards; [done] still tells when the connection ends.
+  void listen(void Function(Uint8List frame) onFrame) {
+    if (_arrival != null) throw StateError('A receive is waiting');
+    _onFrame = onFrame;
+    while (_frames.isNotEmpty && !isClosed) {
+      onFrame(_frames.removeFirst());
+    }
   }
 
   /// Records a frame [receive] returned once the caller has decoded it, under [kind].
@@ -132,14 +150,24 @@ final class TvSocket {
   }
 
   void _onData(Uint8List chunk) {
+    final List<Uint8List> frames;
     try {
-      _frames.addAll(_reader.add(chunk));
+      frames = _reader.add(chunk);
     } on FormatException catch (e) {
       _end(TvProtocolException('The TV sent a malformed frame', cause: e));
       _socket.destroy();
       return;
     }
-    if (_frames.isNotEmpty) _wake();
+    final onFrame = _onFrame;
+    if (onFrame == null) {
+      _frames.addAll(frames);
+      if (_frames.isNotEmpty) _wake();
+      return;
+    }
+    for (final frame in frames) {
+      if (isClosed) return;
+      onFrame(frame);
+    }
   }
 
   void _onError(Object error) => _end(TvClosedException('The connection to port $port failed', cause: error));
@@ -188,11 +216,14 @@ final class TvSocket {
 
 /// One connection attempt: its two stages, their deadlines and its cancellation.
 final class _Attempt {
-  _Attempt(this.target, this.clock, this.timeout);
+  _Attempt(this.target, this.clock, this.timeout, this.pin);
 
   final String target;
   final TvClock clock;
   final Duration timeout;
+  final String? pin;
+  String? _presented;
+  bool _mismatch = false;
   bool _cancelled = false;
   bool _opened = false;
   ConnectionTask<Socket>? _task;
@@ -242,7 +273,7 @@ final class _Attempt {
 
   Future<SecureSocket> _secure(Socket socket, SecurityContext context) async {
     try {
-      final secured = SecureSocket.secure(socket, context: context, onBadCertificate: (_) => true);
+      final secured = SecureSocket.secure(socket, context: context, onBadCertificate: _accept);
       final tls = await clock.deadline(secured, timeout, () {
         socket.destroy();
         return TvTimeoutException('$target accepted the connection but did not finish TLS within $timeout');
@@ -251,10 +282,33 @@ final class _Attempt {
         tls.destroy();
         throw _cancelledError();
       }
+      // onBadCertificate runs only for certificates that fail verification, which every self-signed one does here;
+      // checked again in case one ever passes.
+      final certificate = tls.peerCertificate;
+      if (pin != null && (certificate == null || !_accept(certificate))) {
+        tls.destroy();
+        throw _wrongTv();
+      }
       return tls;
     } on IOException catch (e) {
       if (_cancelled) throw _cancelledError(e);
+      if (_mismatch) throw _wrongTv(e);
       throw TvProtocolException('The TLS handshake with $target failed', cause: e);
     }
   }
+
+  /// Whether to go on with the TV's [certificate]: always without a pin, otherwise only for the pinned key.
+  bool _accept(X509Certificate certificate) {
+    _presented = certificateFingerprint(certificate.der);
+    final accepted = pin == null || _presented == pin;
+    if (!accepted) _mismatch = true;
+    return accepted;
+  }
+
+  TvWrongTvException _wrongTv([Object? cause]) => TvWrongTvException(
+    'The device at $target has another key than the paired TV',
+    expected: pin!,
+    actual: _presented ?? 'none',
+    cause: cause,
+  );
 }

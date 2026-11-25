@@ -3,7 +3,8 @@
 
 /// A remote control for Android TV and Google TV devices in pure Dart, over the TV's own remote protocol.
 ///
-/// In development: this version pairs with TVs and reads what their certificates say; the remote session follows.
+/// In development: this version pairs with TVs, reads what their certificates say and holds remote sessions with their
+/// state; keys, text, links and voice follow.
 library;
 
 export 'src/clock.dart' show TvClock, TvClockWaits;
@@ -13,4 +14,7 @@ export 'src/identity/tv_identity.dart' show TvIdentity;
 export 'src/pairing/pairing.dart' show TvPairing, TvPairingResult;
 export 'src/probe/probe.dart' show TvProbe;
 export 'src/protocol/key_codes.dart' show TvKey;
+export 'src/remote/features.dart' show TvFeature;
+export 'src/remote/remote.dart' show TvRawMessage, TvRemote;
+export 'src/remote/state.dart' show TvDevice, TvState, TvVolume;
 export 'src/trace.dart';

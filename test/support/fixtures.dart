@@ -16,15 +16,19 @@ typedef RecordedMessage = ({bool outgoing, int port, String name, Uint8List byte
 /// The path of a file under `test/fixtures/`.
 String fixturePath(String relative) => 'test/fixtures/$relative';
 
-/// Every message in `test/fixtures/remote/messages.txt`, in file order.
-List<RecordedMessage> recordedMessages() => [
-  for (final line in File(fixturePath('remote/messages.txt')).readAsLinesSync())
+/// Every message in the recording [file] under `test/fixtures/remote/`, in file order.
+List<RecordedMessage> recordedMessages([String file = 'messages.txt']) => [
+  for (final line in File(fixturePath('remote/$file')).readAsLinesSync())
     if (line.isNotEmpty && !line.startsWith('#')) _parse(line),
 ];
 
-/// The recorded message called [name] that went in the given direction.
-RecordedMessage recorded(String name, {required bool outgoing}) =>
-    recordedMessages().singleWhere((m) => m.name == name && m.outgoing == outgoing);
+/// The recorded message called [name] that went in the given direction, from [file].
+RecordedMessage recorded(String name, {required bool outgoing, String file = 'messages.txt'}) =>
+    recordedMessages(file).singleWhere((m) => m.name == name && m.outgoing == outgoing);
+
+/// The bytes of the message called [name] in the package's own session recording (`session.txt`).
+Uint8List sessionMessage(String name, {required bool outgoing}) =>
+    recorded(name, outgoing: outgoing, file: 'session.txt').bytes;
 
 RecordedMessage _parse(String line) {
   final [direction, port, name, bytes] = line.split(' ');

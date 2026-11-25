@@ -5,7 +5,7 @@ import 'dart:io';
 
 /// The TV the device tests use, from the environment: `ANDROIDTV_DIRECT_TEST_HOST` (required) and
 /// `ANDROIDTV_DIRECT_TEST_SERIAL` (the adb serial, to read the screen).
-abstract final class TvDevice {
+abstract final class TestTv {
   /// The TV's address.
   static String? get host => Platform.environment['ANDROIDTV_DIRECT_TEST_HOST'];
 
