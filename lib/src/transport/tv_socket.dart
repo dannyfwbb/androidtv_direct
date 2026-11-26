@@ -67,6 +67,7 @@ final class TvSocket {
   Completer<void>? _arrival;
   void Function(Uint8List frame)? _onFrame;
   void Function(TvRemoteException? reason)? _onEnd;
+  TvRemoteException? _endReason;
 
   /// The TV's port.
   final int port;
@@ -116,10 +117,7 @@ final class TvSocket {
     if (_arrival != null) throw StateError('A receive is waiting');
     _onFrame = onFrame;
     _onEnd = onEnd;
-    if (_ended.isCompleted) {
-      _ended.future.then(onEnd).ignore();
-      return;
-    }
+    if (_ended.isCompleted) return onEnd(_endReason);
     while (_frames.isNotEmpty && !isClosed) {
       onFrame(_frames.removeFirst());
     }
@@ -175,6 +173,7 @@ final class TvSocket {
   void _end(TvRemoteException? error) {
     if (_ended.isCompleted) return;
     _note(error == null ? 'closed' : 'ended: ${error.message}');
+    _endReason = error;
     _ended.complete(error);
     _wake();
     _onEnd?.call(error);

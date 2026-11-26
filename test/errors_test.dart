@@ -19,6 +19,7 @@ void main() {
     const TvClosedException('m'),
     const TvProtocolException('m'),
     const TvCancelledException('m'),
+    const TvInternalException('m'),
   ];
 
   test('every code has exactly one subclass', () {
@@ -40,6 +41,7 @@ void main() {
       TvClosedException() => 'closed',
       TvProtocolException() => 'protocol',
       TvCancelledException() => 'cancelled',
+      TvInternalException() => 'internal',
     };
     expect(all.map(name), TvErrorCode.values.map((c) => c.name));
   });

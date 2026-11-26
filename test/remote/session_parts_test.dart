@@ -3,6 +3,7 @@
 
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:androidtv_direct/androidtv_direct.dart';
 import 'package:androidtv_direct/src/protocol/remote_messages.dart';
@@ -58,11 +59,27 @@ void main() {
         ..attach(second);
       await fake.sendMessage(focus);
       await until(() => session.isClosed);
-      expect(await session.done, isA<TvProtocolException>().having((e) => e.cause, 'cause', isA<StateError>()));
-      expect(second.calls, ['end: protocol'], reason: 'not told the message after the session ended');
-      expect(first.calls.last, 'end: protocol');
+      expect(await session.done, isA<TvInternalException>().having((e) => e.cause, 'cause', isA<StateError>()));
+      expect(second.calls, ['end: internal'], reason: 'not told the message after the session ended');
+      expect(first.calls.last, 'end: internal');
     }, (error, _) => errors.add(error));
     expect(errors.single, isA<StateError>(), reason: 'the bug is not swallowed');
+  });
+
+  test('a condition met by a report is met, though the session ends in the same read', () async {
+    await connect();
+    final level = session.state.volume!.level;
+    final reached = session.until(
+      () => session.state.volume?.level == level + 1,
+      timeout: const Duration(seconds: 5),
+      onTimeout: () => const TvTimeoutException('not reached'),
+    );
+    (await fake.connection.future).sendTogether([
+      VolumeReport(maximum: 15, level: level + 1, muteState: 0).encodeEnvelope(),
+      RefusalMessage(code: RefusalCode.unknownMessage, refused: Uint8List(0)).encodeEnvelope(),
+    ]);
+    await reached;
+    expect(await session.done, isA<TvProtocolException>());
   });
 
   test('a part detached by an earlier one during a message is not told it', () async {

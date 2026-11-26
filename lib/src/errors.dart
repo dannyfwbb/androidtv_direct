@@ -46,6 +46,9 @@ enum TvErrorCode {
 
   /// The caller cancelled the operation.
   cancelled,
+
+  /// A bug in this package ended the session; `cause` holds the error. Worth reporting.
+  internal,
 }
 
 /// The single exception type of this library for failures of operations on a TV.
@@ -206,4 +209,13 @@ final class TvCancelledException extends TvRemoteException {
 
   @override
   TvErrorCode get code => TvErrorCode.cancelled;
+}
+
+/// A bug in this package ended the session; [cause] holds the error, which also went to the zone.
+final class TvInternalException extends TvRemoteException {
+  /// Creates the exception.
+  const TvInternalException(super.message, {super.cause});
+
+  @override
+  TvErrorCode get code => TvErrorCode.internal;
 }

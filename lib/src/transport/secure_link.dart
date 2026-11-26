@@ -60,7 +60,7 @@ final class SecureLink {
   void add(Uint8List bytes) {
     if (_over) return;
     _queued.add(bytes);
-    if (_queued.length == 1) _write();
+    if (_queued.length == 1) _write(fromAdd: true);
   }
 
   /// Sends what was added and closes; within [flushTimeout], after which the connection is ended anyway.
@@ -114,7 +114,9 @@ final class SecureLink {
     }
   }
 
-  void _write() {
+  /// Writes what the socket takes. A failure while the app's own [add] is running is told after it returns: the
+  /// link is over at once (later adds are dropped), but the end does not run inside the caller's send.
+  void _write({bool fromAdd = false}) {
     try {
       while (_queued.isNotEmpty) {
         final next = _queued.first;
@@ -127,7 +129,11 @@ final class SecureLink {
         _offset = 0;
       }
     } on SocketException catch (e) {
-      return _end(e);
+      if (!fromAdd) return _end(e);
+      _over = true;
+      _abort();
+      scheduleMicrotask(() => _onEnd?.call(e));
+      return;
     }
     _completeFlush();
   }

@@ -97,14 +97,12 @@ final class RemoteSession {
   /// Every state change.
   Stream<TvState> get changes => _changes.stream;
 
-  /// Makes [part] follow the session until [detach], or until its end, which it is told of.
+  /// Makes [part] follow the session until [detach], or until its end, which it is told of (at once if it has
+  /// ended).
   void attach(SessionPart part) {
     assert(!_parts.contains(part), 'attached twice');
-    if (isClosed) {
-      part.onEnd(_endReason ?? closedError);
-    } else {
-      _parts.add(part);
-    }
+    if (isClosed) return _tellEnd(part, _endReason ?? closedError);
+    _parts.add(part);
   }
 
   /// Stops telling [part] about the session.
@@ -142,27 +140,18 @@ final class RemoteSession {
     });
   }
 
-  /// The first event of [events] that [test] accepts, within [timeout] ([onTimeout] makes the error then). Throws
-  /// what ended the session if it ends first.
-  Future<T> next<T>(
-    Stream<T> events,
-    bool Function(T event) test, {
+  /// Completes once [met] holds, within [timeout] ([onTimeout] makes the error then). [met] is checked now and after
+  /// every message, as the session applies it, so an answer and an end in the same read are told apart in order.
+  /// Throws what ended the session if it ends first.
+  Future<void> until(
+    bool Function() met, {
     required Duration timeout,
     required TvRemoteException Function() onTimeout,
   }) {
-    final found = Completer<T>();
-    final subscription = events.listen((event) {
-      if (!found.isCompleted && test(event)) found.complete(event);
-    });
-    final ending = _EndWatch((reason) {
-      if (!found.isCompleted) found.completeError(reason);
-    });
-    attach(ending);
-    // The subscription and the watch go when the wait ends, matched, timed out or failed.
-    return _clock.deadline(found.future, timeout, onTimeout).whenComplete(() {
-      detach(ending);
-      return subscription.cancel();
-    });
+    if (met()) return Future.value();
+    final condition = _Condition(met);
+    attach(condition);
+    return _clock.deadline(condition.result.future, timeout, onTimeout).whenComplete(() => detach(condition));
   }
 
   /// Throws [TvNotSupportedException] unless the session has [feature], and what ended the session once it has ended.
@@ -206,7 +195,14 @@ final class RemoteSession {
     }
     _socket.traceReceived(bytes, kind: message.kind);
     _messages.add((message: message, bytes: bytes));
-    _handle(message);
+    // What throws while a message is handled, by the session or a part, is a bug in this package: the session ends
+    // with it as the cause, and it goes to the zone.
+    try {
+      _handle(message);
+    } on Object catch (error, stack) {
+      _end(TvInternalException('Handling ${message.kind} failed', cause: error));
+      Zone.current.handleUncaughtError(error, stack);
+    }
   }
 
   void _handle(RemoteEnvelope message) {
@@ -249,27 +245,13 @@ final class RemoteSession {
       _state = next;
       _changes.add(next);
     }
-    _tellParts((part) {
-      part.onMessage(message);
-      // The part may have detached, or ended the session, meanwhile.
-      if (event != null && _follows(part)) part.onFieldEvent(event);
-    });
-    if (message is PowerReport && !_ready.isCompleted) _ready.complete();
-  }
-
-  /// Calls [tell] for every part still following the session, in the order they attached; a part detached or the
-  /// session ended by an earlier one is not told. A part that throws is a bug in this package: the session ends, with
-  /// the error as the cause, and the error goes to the zone.
-  void _tellParts(void Function(SessionPart part) tell) {
+    // Every part still following the session, in the order they attached: one detached, or a session ended, by an
+    // earlier part is not told.
     for (final part in [..._parts]) {
-      if (!_follows(part)) continue;
-      try {
-        tell(part);
-      } on Object catch (error, stack) {
-        _end(TvProtocolException('Handling a message failed', cause: error));
-        Zone.current.handleUncaughtError(error, stack);
-      }
+      if (_follows(part)) part.onMessage(message);
+      if (event != null && _follows(part)) part.onFieldEvent(event);
     }
+    if (message is PowerReport && !_ready.isCompleted) _ready.complete();
   }
 
   bool _follows(SessionPart part) => !isClosed && _parts.contains(part);
@@ -320,21 +302,34 @@ final class RemoteSession {
     final parts = [..._parts];
     _parts.clear();
     for (final part in parts) {
-      try {
-        part.onEnd(reason ?? closedError);
-      } on Object catch (error, stack) {
-        Zone.current.handleUncaughtError(error, stack);
-      }
+      _tellEnd(part, reason ?? closedError);
+    }
+  }
+
+  /// Tells [part] the session ended; what it throws then goes to the zone, and the other parts are told all the same.
+  static void _tellEnd(SessionPart part, TvRemoteException reason) {
+    try {
+      part.onEnd(reason);
+    } on Object catch (error, stack) {
+      Zone.current.handleUncaughtError(error, stack);
     }
   }
 }
 
-/// A wait that fails when the session ends.
-final class _EndWatch extends SessionPart {
-  _EndWatch(this._onEnd);
+/// A condition [RemoteSession.until] waits for.
+final class _Condition extends SessionPart {
+  _Condition(this._met);
 
-  final void Function(TvRemoteException reason) _onEnd;
+  final bool Function() _met;
+  final Completer<void> result = Completer();
 
   @override
-  void onEnd(TvRemoteException reason) => _onEnd(reason);
+  void onMessage(RemoteEnvelope message) {
+    if (!result.isCompleted && _met()) result.complete();
+  }
+
+  @override
+  void onEnd(TvRemoteException reason) {
+    if (!result.isCompleted) result.completeError(reason);
+  }
 }

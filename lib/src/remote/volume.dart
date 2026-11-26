@@ -51,9 +51,8 @@ final class VolumeControl {
     sendKey(_session, key.code, TvKeyAction.press);
     final sentAt = _session.clock.elapsed;
     try {
-      await _session.next<TvState>(
-        _session.changes,
-        (state) => state.volume?.level != before.level,
+      await _session.until(
+        () => _session.state.volume?.level != before.level,
         timeout: timeout,
         onTimeout: () => TvTimeoutException('The TV did not report a volume change within $timeout'),
       );

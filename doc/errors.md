@@ -19,6 +19,7 @@ Every failure of an operation on a TV is a `TvRemoteException`. Parsing input th
 | `closed` | The TV closed the connection, also in the middle of the TLS handshake (a remote service that is restarting does that behind a port forward) | Reconnect; after a restart the service answered again within half a second |
 | `protocol` | The TV sent something that breaks the protocol; the session is unusable | Reconnect; report it if it repeats |
 | `cancelled` | The app cancelled the operation (`cancelOn`, `cancel`, `close`), or something it did made the operation moot: a newer `setVolume` took over, the text field lost the focus, the session was closed before the call | — |
+| `internal` | A bug in this package ended the session; `cause` holds the error, which also went to the zone (as an uncaught error) | Reconnect, and report it with the cause |
 
 Once a session has ended, every call on it fails with what ended it: `cancelled` after `close`, otherwise the session's own error (`remote.done` holds it).
 

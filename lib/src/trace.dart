@@ -14,8 +14,8 @@ enum TvTraceLevel {
 
 /// Receives what a pairing or a session does, for logs, debugging and recording.
 ///
-/// [onEvent] is called synchronously on the event loop; keep it cheap. At [TvTraceLevel.messages], the default,
-/// events never carry message contents.
+/// [onEvent] is called synchronously on the event loop; keep it cheap. What it throws goes to the zone as an uncaught
+/// error, and the connection goes on. At [TvTraceLevel.messages], the default, events never carry message contents.
 final class TvTracer {
   /// Creates a tracer that hands events to [onEvent].
   const TvTracer(this.onEvent, {this.level = TvTraceLevel.messages});
