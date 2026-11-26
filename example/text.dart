@@ -16,16 +16,19 @@ import 'package:androidtv_direct/androidtv_direct.dart';
 import 'paired.dart';
 
 Future<void> main(List<String> args) async {
+  if (args.length != 2) return print('Usage: dart run example/text.dart <host> <text>');
   final [host, text] = args;
   final remote = await connectPaired(host, features: {TvFeature.ime});
   try {
     final field = await _focusedField(remote);
-    if (field == null) return print('No text field got the focus within a minute.');
+    if (field == null) return print('No text field got the focus.');
     print('Field: "${field.text}" (${field.kind.password ? 'password' : 'text'}, action ${field.kind.action.name})');
     final result = await field.setText(text);
     print(result == text ? 'The field holds "$result"' : 'The field changed it to "$result" (a filter or a limit)');
     field.changes.listen((typed) => print('Typed on the TV: "$typed"'));
-    await Future.any([ProcessSignal.sigint.watch().first, remote.done]);
+    final interrupted = ProcessSignal.sigint.watch().listen((_) => remote.close());
+    await remote.done;
+    await interrupted.cancel();
   } finally {
     await remote.close();
   }
@@ -36,6 +39,6 @@ Future<TvTextField?> _focusedField(TvRemote remote) async {
   if (remote.textField case final field?) return field;
   print('Open a text field on the TV.');
   return remote.textFieldChanges
-      .firstWhere((field) => field != null && field.isFocused)
+      .firstWhere((field) => field != null && field.isFocused, orElse: () => null)
       .timeout(const Duration(minutes: 1), onTimeout: () => null);
 }

@@ -17,6 +17,7 @@ import 'package:androidtv_direct/androidtv_direct.dart';
 import 'paired.dart';
 
 Future<void> main(List<String> args) async {
+  if (args.length != 2) return print('Usage: dart run example/voice.dart <host> <speech.wav>');
   final [host, path] = args;
   final Uint8List audio;
   try {
@@ -47,7 +48,7 @@ Uint8List _pcmOf(Uint8List wav) {
     final length = data.getUint32(at + 4, Endian.little);
     final body = at + 8;
     switch (tag(at)) {
-      case 'fmt ' when length >= 16:
+      case 'fmt ' when length >= 16 && body + 16 <= wav.length:
         format = (
           format: data.getUint16(body, Endian.little),
           channels: data.getUint16(body + 2, Endian.little),

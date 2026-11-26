@@ -12,7 +12,7 @@ import 'package:test/test.dart';
 import '../support/fake_tv.dart';
 import '../support/fixtures.dart';
 
-/// The write side of a connection: queued writes, a close that sends them first, and one that cannot hang.
+/// The write side of a connection: queued writes, a close that sends them first and is bounded in time.
 void main() {
   final client = testClient();
 
@@ -44,6 +44,40 @@ void main() {
     expect(await received.future.timeout(const Duration(seconds: 10)), List.generate(200, (i) => i));
   });
 
+  test('closing is bounded also when only TLS itself still holds unsent bytes', () async {
+    final server = await SecureServerSocket.bind(
+      InternetAddress.loopbackIPv4,
+      0,
+      FakeTv.serverContext(trusted: [testIdentity('client').certificatePem]),
+      requestClientCertificate: true,
+    );
+    final held = <SecureSocket>[];
+    server.listen((socket) {
+      socket.setRawOption(_bufferSize(receive: true));
+      held.add(socket..listen((_) {}).pause());
+    });
+    addTearDown(() async {
+      for (final socket in held) {
+        socket.destroy();
+      }
+      await server.close();
+    });
+    final plain = await RawSocket.connect(InternetAddress.loopbackIPv4, server.port)
+      ..setRawOption(_bufferSize(receive: false));
+    final tls = await RawSecureSocket.secure(plain, context: client.securityContext(), onBadCertificate: (_) => true);
+    final link = SecureLink(tls, plain)..listen(onData: (_) {}, onEnd: ([_]) {});
+    // Fill TLS's buffers directly, past what the kernel takes: the link's own queue stays empty.
+    // Fill TLS's own buffers, past the kernel's (made small): the link's own queue stays empty.
+    final chunk = Uint8List(100);
+    for (var refused = 0; refused < 200;) {
+      refused = tls.write(chunk) < chunk.length ? refused + 1 : 0;
+      await Future<void>.delayed(const Duration(milliseconds: 1));
+    }
+    final stopwatch = Stopwatch()..start();
+    await link.close().timeout(const Duration(seconds: 10));
+    expect(stopwatch.elapsed, lessThan(SecureLink.flushTimeout * 2));
+  });
+
   test('closing towards a TV that stopped reading gives up after the flush timeout', () async {
     final server = await SecureServerSocket.bind(
       InternetAddress.loopbackIPv4,
@@ -71,4 +105,11 @@ void main() {
     expect(stopwatch.elapsed, lessThan(SecureLink.flushTimeout * 2));
     expect(await socket.done, isNull);
   });
+}
+
+/// A small socket buffer, so that a peer that does not read fills it quickly.
+RawSocketOption _bufferSize({required bool receive}) {
+  final linux = Platform.isLinux || Platform.isAndroid;
+  final option = receive ? (linux ? 8 : 0x1002) : (linux ? 7 : 0x1001);
+  return RawSocketOption.fromInt(RawSocketOption.levelSocket, option, 4096);
 }

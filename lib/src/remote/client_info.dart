@@ -48,7 +48,7 @@ final class TvClientInfo {
   final String? vendor;
 
   /// The device's operating system.
-  final TvClientOs? os;
+  final TvClientOs os;
 
   /// The operating system's version, such as `15`.
   final String? osVersion;
@@ -64,7 +64,7 @@ final class TvClientInfo {
   DeviceInfo toMessage() => DeviceInfo(
     model: model,
     vendor: vendor,
-    os: os?.code,
+    os: os.code,
     androidRelease: osVersion,
     packageName: appId,
     serviceVersion: appVersion,
@@ -84,5 +84,5 @@ final class TvClientInfo {
   int get hashCode => Object.hash(model, vendor, os, osVersion, appId, appVersion);
 
   @override
-  String toString() => 'TvClientInfo($vendor $model, ${os?.name} $osVersion, $appId $appVersion)';
+  String toString() => 'TvClientInfo(${[vendor, model, os.name, osVersion, appId, appVersion].nonNulls.join(' ')})';
 }

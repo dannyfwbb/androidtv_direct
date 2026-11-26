@@ -222,6 +222,11 @@ final class _Attempt {
   /// TCP, then TLS over it.
   Future<SecureLink> open(Object host, int port, SecurityContext context) async {
     final link = await _secure(await _openTcp(host, port), context);
+    // A cancellation may have come between the handshake and here.
+    if (_cancelled) {
+      link.destroy();
+      throw _cancelledError();
+    }
     _opened = true;
     return link;
   }
@@ -229,11 +234,12 @@ final class _Attempt {
   Future<RawSocket> _openTcp(Object host, int port) async {
     try {
       // The host lookup happens before startConnect returns its task, so it is under the deadline too.
-      final task = await clock.deadline(
-        RawSocket.startConnect(host, port),
-        timeout,
-        () => TvUnreachableException('$target could not be resolved within $timeout'),
-      );
+      final starting = RawSocket.startConnect(host, port);
+      final task = await clock.deadline(starting, timeout, () {
+        // A lookup that finishes later must not leave a connection behind.
+        starting.then(_discard, onError: (Object _) {}).ignore();
+        return TvUnreachableException('$target could not be resolved within $timeout');
+      });
       _task = task;
       if (_cancelled) task.cancel();
       final socket = await clock.deadline(task.socket, timeout, () {
@@ -241,13 +247,22 @@ final class _Attempt {
         return TvUnreachableException('$target did not answer within $timeout');
       });
       _socket = socket;
-      if (_cancelled) throw _cancelledError();
+      if (_cancelled) {
+        socket.close().ignore();
+        throw _cancelledError();
+      }
       socket.setOption(SocketOption.tcpNoDelay, true);
       return socket;
     } on SocketException catch (e) {
       if (_cancelled) throw _cancelledError(e);
       throw _connectError(e);
     }
+  }
+
+  /// Stops [task] and closes the socket it may still open.
+  static void _discard(ConnectionTask<RawSocket> task) {
+    task.cancel();
+    task.socket.then((socket) => socket.close(), onError: (Object _) {}).ignore();
   }
 
   Future<SecureLink> _secure(RawSocket socket, SecurityContext context) async {
@@ -286,7 +301,8 @@ final class _Attempt {
       );
     } on Object {
       socket.close().ignore();
-      secured.ignore();
+      // A handshake that still finishes leaves a TLS socket nobody owns.
+      secured.then((orphan) => orphan.close(), onError: (Object _) {}).ignore();
       rethrow;
     }
   }

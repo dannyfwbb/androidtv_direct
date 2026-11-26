@@ -33,6 +33,7 @@ const Map<String, TvKey> _keys = {
 };
 
 Future<void> main(List<String> args) async {
+  if (args.length != 1) return print('Usage: dart run example/remote.dart <host>');
   final remote = await connectPaired(args.single, features: {TvFeature.ime});
   print('${remote.device.vendor} ${remote.device.model}: arrows, Enter, b, h, +, -, m, p, t (text), l (link), q');
   remote.changes.listen((state) => print('  $state'));
@@ -62,7 +63,11 @@ Future<void> main(List<String> args) async {
 Future<void> _type(TvRemote remote, String text) async {
   final field = remote.textField;
   if (field == null) return print('  No text field has the focus: open a search box on the TV first.');
-  print('  The field now holds "${await field.setText(text)}"');
+  try {
+    print('  The field now holds "${await field.setText(text)}"');
+  } on TvCancelledException {
+    print('  The field lost the focus.');
+  }
 }
 
 /// Keys from the terminal as they are pressed (an arrow's escape sequence is one key), or lines when asked for one;
@@ -109,13 +114,19 @@ final class _Input {
   /// The next line, after [prompt].
   Future<String> line(String prompt) async {
     stdout.write(prompt);
-    final typed = StringBuffer();
+    var typed = '';
     for (var key = await nextKey(); key != null && key != '\r' && key != '\n'; key = await nextKey()) {
-      if (_raw) stdout.write(key);
-      typed.write(key);
+      if (key == '\x7f' || key == '\b') {
+        if (typed.isEmpty) continue;
+        typed = typed.substring(0, typed.length - 1);
+        if (_raw) stdout.write('\b \b');
+      } else {
+        typed += key;
+        if (_raw) stdout.write(key);
+      }
     }
     if (_raw) stdout.writeln();
-    return typed.toString();
+    return typed;
   }
 
   void _wake() {

@@ -16,7 +16,8 @@ final class SecureLink {
   /// Wraps [_tls], made over [_plain] by `RawSecureSocket.secure`.
   SecureLink(this._tls, this._plain);
 
-  /// How long [close] waits for queued bytes to go out before it closes anyway.
+  /// How long [close] waits for what was sent to go out before it ends the connection anyway: a TV that stopped
+  /// reading would otherwise hold it until TCP gives up.
   static const Duration flushTimeout = Duration(seconds: 2);
 
   final RawSecureSocket _tls;
@@ -33,7 +34,7 @@ final class SecureLink {
   X509Certificate? get peerCertificate => _tls.peerCertificate;
 
   /// Delivers what arrives to [onData], and calls [onEnd] once when the other side closes or the connection fails
-  /// (with the error); not after [close] or [destroy].
+  /// (with the error), also while [close] waits for the flush; not once [close] or [destroy] ended it.
   void listen({required void Function(Uint8List chunk) onData, required void Function([Object? error]) onEnd}) {
     _onEnd = onEnd;
     _tls.writeEventsEnabled = false;
@@ -62,27 +63,35 @@ final class SecureLink {
     if (_queued.length == 1) _write();
   }
 
-  /// Sends what is queued (waiting up to [flushTimeout]), then closes.
+  /// Sends what was added and closes; within [flushTimeout], after which the connection is ended anyway.
   Future<void> close() async {
     if (_over) return;
-    if (_queued.isNotEmpty) await (_flushed ??= Completer()).future.timeout(flushTimeout, onTimeout: () {});
-    if (_over) return;
+    final closed = await _flushAndClose().timeout(flushTimeout, onTimeout: () => false);
+    if (!closed) destroy();
+  }
+
+  /// Whether the queue went out and TLS closed (its own buffers flushed to the socket first).
+  Future<bool> _flushAndClose() async {
+    if (_queued.isNotEmpty) await (_flushed ??= Completer()).future;
+    if (_over) return true;
     _over = true;
-    if (_queued.isNotEmpty) return _closePlain();
+    if (_queued.isNotEmpty) return false;
     try {
       await _tls.close();
+      return true;
     } on IOException {
-      _closePlain();
+      return false;
     }
   }
 
   /// Ends the connection now, dropping what is queued.
   void destroy() {
     _over = true;
-    _closePlain();
+    _abort();
   }
 
-  void _closePlain() {
+  /// Drops the queue and closes the plain socket, which ends the TLS connection at any stage.
+  void _abort() {
     _queued.clear();
     _plain.close().ignore();
     _completeFlush();
@@ -91,7 +100,7 @@ final class SecureLink {
   void _end([Object? error]) {
     if (_over) return;
     _over = true;
-    _closePlain();
+    _abort();
     _onEnd?.call(error);
   }
 

@@ -142,8 +142,9 @@ final class TvTextField {
   void _moveCursorToEnd(String value) {
     final first = _afterMove == null;
     _afterMove = value;
-    if (!first || !_sent(() => sendKey(_session, TvKey.moveEnd.code, TvKeyAction.press))) return;
-    _restartTimer(_moveEndWait, _afterCursorMoved);
+    if (!first) return;
+    final sent = _sent(() => sendKey(_session, TvKey.moveEnd.code, TvKeyAction.press));
+    if (sent) _restartTimer(_moveEndWait, _afterCursorMoved);
   }
 
   void _afterCursorMoved() {
@@ -157,7 +158,7 @@ final class TvTextField {
     _copyTracker();
     final report = _sync.report(_session.field.text, cursor: _selection.end);
     if (_afterMove == null) return _apply(report);
-    // The report of the cursor's move: nothing was in flight, so nothing is sent; a text changed on the TV still counts.
+    // The report of the cursor's move: nothing was in flight, so nothing is sent; a text changed on the TV counts.
     if (report.adopt case final text?) _changes.add(text);
     _afterCursorMoved();
   }
