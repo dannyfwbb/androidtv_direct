@@ -115,6 +115,26 @@ void main() {
       expect(keys.map((k) => k.code), [24, 24, 24, 25, 25]);
     });
 
+    test(
+      'down to 0 (which mutes) and back up: each press is one step, so the walk never presses past an end',
+      () async {
+        final remote = await connect();
+        await until(() => remote.state.volume != null);
+        final start = remote.state.volume!.level;
+        final maximum = remote.state.volume!.maximum;
+        for (final target in [0, 2, 0, maximum, 1]) {
+          final pressesBefore = fake.fromClient.whereType<KeyMessage>().length;
+          final from = remote.state.volume!.level;
+          await remote.setVolume(target);
+          expect(remote.state.volume!.level, target);
+          expect(fake.volume, target);
+          final presses = fake.fromClient.whereType<KeyMessage>().length - pressesBefore;
+          expect(presses, (target - from).abs(), reason: 'from $from to $target');
+        }
+        expect(start, isNot(1), reason: 'the walk ends somewhere it did not start');
+      },
+    );
+
     test('a newer call takes over from an older one', () async {
       final remote = await connect();
       await until(() => remote.state.volume != null);

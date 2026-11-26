@@ -39,14 +39,18 @@ final class VolumeControl {
     }
   }
 
-  /// Presses one volume key toward [toward] and waits for the next volume report. The report cannot arrive before
-  /// the wait starts: it comes from a later read of the socket.
+  /// Presses one volume key toward [toward] and waits for the report of the level it moved to. The report cannot
+  /// arrive before the wait starts: it comes from a later read of the socket.
+  ///
+  /// Only a new level counts: volume up while muted is reported twice (the unmute at the same level, then the new
+  /// level), and taking the first for the step would leave every later report one press behind, until a press at
+  /// either end of the range is never answered.
   Future<void> _step(TvVolume before, {required int toward, required Duration timeout}) {
     final key = toward > before.level ? TvKey.volumeUp : TvKey.volumeDown;
     sendKey(_session, key.code, TvKeyAction.press);
     return _session.next<TvState>(
       _session.changes,
-      (state) => state.volume != before,
+      (state) => state.volume?.level != before.level,
       timeout: timeout,
       onTimeout: () => TvTimeoutException('The TV did not report a volume change within $timeout'),
     );

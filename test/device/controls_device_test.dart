@@ -39,6 +39,16 @@ void main() {
       expect((await TestTv.mediaVolume(), remote.state.volume!.level), (start, start));
     });
 
+    test('setVolume walks through 0, where the TV mutes, and the maximum, landing on each target', () async {
+      final start = await TestTv.mediaVolume();
+      addTearDown(() => TestTv.setMediaVolume(start));
+      final maximum = remote.state.volume!.maximum;
+      for (final target in [0, 2, 0, maximum, maximum - 1, 1]) {
+        await remote.setVolume(target, timeout: const Duration(seconds: 30));
+        expect((await TestTv.mediaVolume(), remote.state.volume!.level), (target, target), reason: 'target $target');
+      }
+    }, timeout: const Timeout(Duration(seconds: 120)));
+
     test('Home and Back reach the TV', () async {
       await TestTv.keyEvent('HOME');
       await TestTv.shell(['am', 'start', '-n', 'com.android.tv.settings/.MainSettings']);

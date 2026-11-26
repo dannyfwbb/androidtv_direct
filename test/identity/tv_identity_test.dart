@@ -1,6 +1,8 @@
 // Copyright 2026 The androidtv_direct authors
 // SPDX-License-Identifier: Apache-2.0
 
+import 'dart:math';
+
 import 'package:androidtv_direct/src/identity/tv_identity.dart';
 import 'package:test/test.dart';
 
@@ -82,5 +84,38 @@ void main() {
       expect(read('atvremote/d/11:22:33:44:55:66', 'p/d'), [null, null, null, '11:22:33:44:55:66']);
       expect(read(null), [null, null, null, null]);
     });
+  });
+
+  test('fuzz: any common name and dnQualifier parse without an error, and what is read is well-formed', () {
+    final random = Random(1);
+    const parts = [
+      'atvremote',
+      '/',
+      'CN=',
+      '/CN=atvremote/',
+      'AA:BB:CC:DD:EE:FF',
+      'aa:bb:cc:dd:ee:0f',
+      'x',
+      '',
+      ' ',
+      'é',
+    ];
+    String? piece() => random.nextInt(8) == 0
+        ? null
+        : List.generate(random.nextInt(6), (_) => parts[random.nextInt(parts.length)]).join();
+    final mac = RegExp(r'^[0-9A-F]{2}(:[0-9A-F]{2}){5}$');
+    for (var i = 0; i < 50000; i++) {
+      final (commonName, dnQualifier) = (piece(), piece());
+      final subject = TvSubject.parse(commonName: commonName, dnQualifier: dnQualifier);
+      final reason = 'CN=$commonName, dnQualifier=$dnQualifier';
+      if (subject.macAddress case final address?) expect(mac.hasMatch(address), isTrue, reason: reason);
+      for (final name in [subject.product, subject.device, subject.model]) {
+        expect(name, isNot(''), reason: reason);
+      }
+      if (subject.isRemoteService) {
+        final fromCommonName = commonName == 'atvremote' || (commonName?.startsWith('atvremote/') ?? false);
+        expect(fromCommonName || (dnQualifier?.contains('/CN=atvremote/') ?? false), isTrue, reason: reason);
+      }
+    }
   });
 }

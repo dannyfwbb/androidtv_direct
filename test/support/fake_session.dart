@@ -93,6 +93,9 @@ final class FakeSession {
   /// The level the volume keys move, from the recorded start report; the maximum stays the recorded one.
   late int volume = _recordedVolume.level!;
 
+  /// Whether the sound is muted: the emulator mutes at level 0.
+  bool muted = false;
+
   static final VolumeReport _recordedVolume =
       RemoteEnvelope.fromTv(sessionMessage('volumeReport', outgoing: false)) as VolumeReport;
 
@@ -131,9 +134,21 @@ final class FakeSession {
       _ => 0,
     };
     if (step == 0) return;
-    volume = (volume + step).clamp(0, _recordedVolume.maximum!);
-    send(c, VolumeReport(maximum: _recordedVolume.maximum, level: volume, muteState: 0).encodeEnvelope());
+    // As the emulator: volume up while muted reports the unmute at the same level first, then the new level; a key
+    // at either end of the range changes nothing and reports nothing.
+    if (step > 0 && muted) {
+      muted = false;
+      _reportVolume(c);
+    }
+    final next = (volume + step).clamp(0, _recordedVolume.maximum!);
+    if (next == volume) return;
+    volume = next;
+    muted = volume == 0;
+    _reportVolume(c);
   }
+
+  void _reportVolume(FakeTvConnection c) =>
+      send(c, VolumeReport(maximum: _recordedVolume.maximum, level: volume, muteState: muted ? 1 : 0).encodeEnvelope());
 
   /// Refuses a message as the TV does: a refusal echoing it, then the connection closes.
   Future<bool> _refuse(FakeTvConnection c, RefusalCode code, List<int> bytes) async {
