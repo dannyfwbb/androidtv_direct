@@ -6,6 +6,7 @@ import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 
+import 'package:androidtv_direct/src/arguments.dart';
 import 'package:androidtv_direct/src/bytes.dart';
 import 'package:androidtv_direct/src/crypto/certificate.dart';
 import 'package:androidtv_direct/src/crypto/der.dart';
@@ -52,7 +53,7 @@ final class TvClientIdentity {
     Duration validity = const Duration(days: 3650),
   }) async {
     if (commonName != null && commonName.isEmpty) throw ArgumentError.value(commonName, 'commonName', 'is empty');
-    if (validity <= Duration.zero) throw ArgumentError.value(validity, 'validity', 'must be positive');
+    checkPositive(validity, 'validity');
     final key = await Isolate.run(RsaPrivateKey.generate);
     final certificate = buildCertificate(
       key,

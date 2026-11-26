@@ -35,7 +35,7 @@ abstract final class TvProbe {
     Future<void>? cancelOn,
     DateTime Function() now = DateTime.now,
   }) async {
-    checkTimeout(timeout, 'timeout');
+    checkPositive(timeout, 'timeout');
     final client = identity ?? await _sharedIdentity(now);
     final socket = await TvSocket.connect(
       host,
@@ -75,7 +75,7 @@ abstract final class TvProbe {
     TvClock clock = TvClock.system,
     DateTime Function() now = DateTime.now,
   }) {
-    checkTimeout(timeout, 'timeout');
+    checkPositive(timeout, 'timeout');
     checkPort(port);
     return scanHosts(
       hosts,

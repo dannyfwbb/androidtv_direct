@@ -71,10 +71,10 @@ final class TvRemote {
     TvTracer? tracer,
     Future<void>? cancelOn,
   }) async {
-    checkTimeout(connectTimeout, 'connectTimeout');
-    checkTimeout(startTimeout, 'startTimeout');
-    checkTimeout(idleTimeout, 'idleTimeout');
-    checkTimeout(textGiveUp, 'textGiveUp');
+    checkPositive(connectTimeout, 'connectTimeout');
+    checkPositive(startTimeout, 'startTimeout');
+    checkPositive(idleTimeout, 'idleTimeout');
+    checkPositive(textGiveUp, 'textGiveUp');
     final socket = await TvSocket.connect(
       host,
       port,
@@ -155,8 +155,8 @@ final class TvRemote {
     Duration stepTimeout = const Duration(seconds: 2),
     Duration timeout = const Duration(seconds: 15),
   }) async {
-    checkTimeout(stepTimeout, 'stepTimeout');
-    checkTimeout(timeout, 'timeout');
+    checkPositive(stepTimeout, 'stepTimeout');
+    checkPositive(timeout, 'timeout');
     return _volume.set(level, stepTimeout: stepTimeout, timeout: timeout);
   }
 
@@ -169,7 +169,7 @@ final class TvRemote {
   /// time, [StateError] while another voice session of this remote is starting or not [TvVoiceSession.done],
   /// [ArgumentError] for a [timeout] that is not longer than zero, and what ended the session.
   Future<TvVoiceSession> startVoice({Duration timeout = const Duration(seconds: 2), bool pace = true}) async {
-    checkTimeout(timeout, 'timeout');
+    checkPositive(timeout, 'timeout');
     if (_voiceBusy) throw StateError('A voice session is open');
     _voiceStarting = true;
     try {

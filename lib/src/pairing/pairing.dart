@@ -52,7 +52,7 @@ final class TvPairing {
     Future<void>? cancelOn,
   }) async {
     if (clientName.trim().isEmpty) throw ArgumentError.value(clientName, 'clientName', 'is empty');
-    checkTimeout(timeout, 'timeout');
+    checkPositive(timeout, 'timeout');
     final socket = await TvSocket.connect(
       host,
       port,
@@ -118,7 +118,7 @@ final class TvPairing {
   /// Throws [StateError] when called while another [finish] runs, or after the pairing is over, and [ArgumentError]
   /// for a [timeout] that is not longer than zero.
   Future<TvPairingResult> finish(String code, {Duration timeout = const Duration(seconds: 10)}) async {
-    checkTimeout(timeout, 'timeout');
+    checkPositive(timeout, 'timeout');
     _checkCanFinish();
     final secret = _secretFor(code);
     _stage = _Stage.finishing;
