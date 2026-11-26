@@ -9,7 +9,6 @@ import 'package:androidtv_direct/androidtv_direct.dart';
 import 'package:androidtv_direct/src/bytes.dart';
 import 'package:androidtv_direct/src/protocol/proto.dart';
 import 'package:androidtv_direct/src/protocol/remote_messages.dart';
-import 'package:androidtv_direct/src/remote/session.dart';
 import 'package:test/test.dart';
 
 import '../support/fake_clock.dart';
@@ -35,6 +34,7 @@ void main() {
     TvClock clock = TvClock.system,
     Future<void>? cancelOn,
     TvTracer? tracer,
+    TvClientInfo client = TvClientInfo.standard,
   }) => TvRemote.connect(
     InternetAddress.loopbackIPv4,
     port: tv.remotePort,
@@ -44,6 +44,7 @@ void main() {
     clock: clock,
     cancelOn: cancelOn,
     tracer: tracer,
+    client: client,
   );
 
   group('start', () {
@@ -60,9 +61,28 @@ void main() {
       final mask = TvFeature.maskOf(TvFeature.defaults);
       expect(
         hexEncode(setup.encodeEnvelope()),
-        hexEncode(SetupMessage(features: mask, device: clientDevice).encodeEnvelope()),
+        hexEncode(SetupMessage(features: mask, device: TvClientInfo.standard.toMessage()).encodeEnvelope()),
       );
       expect((activate as ActivateMessage).features, mask);
+      await remote.close();
+    });
+
+    test('the setup describes the client as the app says', () async {
+      final (tv, fake) = await fakeTv();
+      const client = TvClientInfo(
+        model: 'Phone',
+        vendor: 'Maker',
+        os: TvClientOs.ios,
+        osVersion: '18.1',
+        appId: 'app.example.remote',
+        appVersion: '2.3.4',
+      );
+      final remote = await connect(tv, client: client);
+      final device = (fake.fromClient.first as SetupMessage).device!;
+      expect(
+        (device.model, device.vendor, device.os, device.androidRelease, device.packageName, device.serviceVersion),
+        ('Phone', 'Maker', 2, '18.1', 'app.example.remote', '2.3.4'),
+      );
       await remote.close();
     });
 

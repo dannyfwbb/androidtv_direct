@@ -11,6 +11,7 @@ import 'package:androidtv_direct/src/identity/client_identity.dart';
 import 'package:androidtv_direct/src/protocol/key_codes.dart';
 import 'package:androidtv_direct/src/protocol/proto.dart';
 import 'package:androidtv_direct/src/protocol/remote_messages.dart';
+import 'package:androidtv_direct/src/remote/client_info.dart';
 import 'package:androidtv_direct/src/remote/features.dart';
 import 'package:androidtv_direct/src/remote/keys.dart';
 import 'package:androidtv_direct/src/remote/links.dart';
@@ -45,7 +46,8 @@ final class TvRemote {
   ///
   /// [features] is what the session asks for; the TV grants what it offers of it ([TvRemote.features]). Power reports
   /// are always asked for: the session is ready when the TV reports its power state. [textGiveUp] is how long a
-  /// [TvTextField.setText] waits for the TV's report before taking the TV's text as it is.
+  /// [TvTextField.setText] waits for the TV's report before taking the TV's text as it is. [client] is what the TV is
+  /// told about this app and device; the TV only logs it.
   ///
   /// Throws [TvUnreachableException], [TvNoServiceException], [TvWrongTvException], [TvNotPairedException] (the TV does
   /// not know [identity]), [TvTimeoutException] (no TLS within [connectTimeout], or no start within [startTimeout]),
@@ -56,6 +58,7 @@ final class TvRemote {
     required TvClientIdentity identity,
     required String? fingerprint,
     Set<TvFeature> features = TvFeature.defaults,
+    TvClientInfo client = TvClientInfo.standard,
     int port = defaultPort,
     Duration connectTimeout = const Duration(seconds: 5),
     Duration startTimeout = const Duration(seconds: 10),
@@ -75,7 +78,7 @@ final class TvRemote {
       tracer: tracer,
       cancelOn: cancelOn,
     );
-    final session = RemoteSession(socket, features, clock: clock, idleTimeout: idleTimeout);
+    final session = RemoteSession(socket, features, clock: clock, idleTimeout: idleTimeout, client: client);
     await cancellable(cancelOn, what: 'Connecting', abort: session.close, body: () => session.start(startTimeout));
     return TvRemote._(session, textGiveUp);
   }

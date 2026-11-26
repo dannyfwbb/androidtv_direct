@@ -149,7 +149,7 @@ Every message is an envelope that carries exactly one of these fields (the names
 | 60, 61 | audio output, set and reset | client → TV (accepted empty on the emulator, no visible effect; not used) |
 | 90 | open link | client → TV |
 
-**setup** (1): 1 features; 2 device information: 1 model, 2 vendor, 3 (unknown, 1), 4 Android version (`14`), 5 package of the service, 6 its version. Clients send fields 3-6 of their own.
+**setup** (1): 1 features; 2 device information: 1 model, 2 vendor, 3 operating system (0 unspecified, 1 Android, 2 iOS; the TV names no other value), 4 its version (`14`), 5 package of the app or service, 6 its version. Clients commonly send `1`, `1`, `atvremote`, `1.0.0` for fields 3-6; the TV logs whatever it gets.
 
 **activate** (2): from the TV empty; from the client 1 = its features.
 

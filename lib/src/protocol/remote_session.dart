@@ -41,6 +41,7 @@ final class DeviceInfo extends ProtoMessage {
   DeviceInfo({
     this.model,
     this.vendor,
+    this.os,
     this.androidRelease,
     this.packageName,
     this.serviceVersion,
@@ -53,6 +54,7 @@ final class DeviceInfo extends ProtoMessage {
     return DeviceInfo(
       model: fields.string(1),
       vendor: fields.string(2),
+      os: fields.integer(3),
       androidRelease: fields.string(4),
       packageName: fields.string(5),
       serviceVersion: fields.string(6),
@@ -66,7 +68,10 @@ final class DeviceInfo extends ProtoMessage {
   /// The maker (field 2).
   final String? vendor;
 
-  /// The Android version, such as `14` (field 4; clients send `1`).
+  /// The operating system (field 3): 1 Android, 2 iOS, 0 unspecified, as the TV's log names them.
+  final int? os;
+
+  /// The operating system's version, such as `14` (field 4; clients send `1`).
   final String? androidRelease;
 
   /// The sending app's package (field 5).
@@ -79,6 +84,7 @@ final class DeviceInfo extends ProtoMessage {
   void writeFields(ProtoWriter writer) => writer
     ..optionalString(1, model)
     ..optionalString(2, vendor)
+    ..optionalVarint(3, os)
     ..optionalString(4, androidRelease)
     ..optionalString(5, packageName)
     ..optionalString(6, serviceVersion);

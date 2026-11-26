@@ -35,6 +35,23 @@ void main() {
       expect(await remote.done, isNull);
     }, timeout: const Timeout(Duration(seconds: 40)));
 
+    test('the TV logs what the client says about itself, and an iOS client gets the same session', () async {
+      final mark = 'Model ${DateTime.now().microsecondsSinceEpoch}';
+      final remote = await TvRemote.connect(
+        TestTv.host!,
+        identity: identity,
+        fingerprint: fingerprint,
+        client: TvClientInfo(model: mark, vendor: 'Maker', os: TvClientOs.ios, osVersion: '18.1', appId: 'app.test'),
+      );
+      expect(remote.features, containsAll(TvFeature.defaults));
+      final logged = await TestTv.waitFor(() async => (await TestTv.log()).contains(mark), true);
+      expect(logged, isTrue);
+      final line = (await TestTv.log()).split('\n').lastWhere((line) => line.contains(mark));
+      expect(line, allOf(contains('device_manufacturer=Maker'), contains('os=ios'), contains('os_version=18.1')));
+      expect(line, allOf(contains('app_name=app.test'), contains('app_version=1.0.0')));
+      await remote.close();
+    });
+
     test('an identity the TV does not know is not paired', () async {
       final stranger = await TvClientIdentity.generate(now: DateTime.now());
       await expectLater(connect(as: stranger), throwsA(isA<TvNotPairedException>()));

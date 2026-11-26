@@ -23,7 +23,7 @@ States: **planned** (designed, not written), **in progress**, **built** (impleme
 | Connect with a paired identity; "not paired" told apart from network trouble | built |
 | Pinning: refuse a TV whose key is not the paired one, before sending anything | built |
 | Feature negotiation (keys, text, power, volume, links, voice) | built |
-| The client's own device information sent to the TV (name, version) | planned |
+| The client's own device information sent to the TV (model, maker, OS, app and version) | built (the TV only logs it) |
 | Device information (vendor, model, Android version, service version) | built |
 | Keepalive answers and detection of a TV that went away (silence in both directions) | built |
 | Deadlines on connect, start and every step; cancellation | built |

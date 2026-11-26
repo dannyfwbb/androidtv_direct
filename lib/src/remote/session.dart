@@ -7,23 +7,13 @@ import 'dart:typed_data';
 
 import 'package:androidtv_direct/src/clock.dart';
 import 'package:androidtv_direct/src/errors.dart';
-import 'package:androidtv_direct/src/protocol/proto.dart';
 import 'package:androidtv_direct/src/protocol/remote_messages.dart';
+import 'package:androidtv_direct/src/remote/client_info.dart';
 import 'package:androidtv_direct/src/remote/features.dart';
 import 'package:androidtv_direct/src/remote/state.dart';
 import 'package:androidtv_direct/src/remote/watchdog.dart';
 import 'package:androidtv_direct/src/text/field_tracker.dart';
 import 'package:androidtv_direct/src/transport/tv_socket.dart';
-
-/// What the client says about itself in its setup: the values recorded from an existing client of the protocol
-/// (Android release `1`, package `atvremote`, version `1.0.0`, field 3 set to 1). What the TV does with them is not
-/// known.
-final DeviceInfo clientDevice = DeviceInfo(
-  androidRelease: '1',
-  packageName: 'atvremote',
-  serviceVersion: '1.0.0',
-  unknownFields: [ProtoField.varint(3, 1)],
-);
 
 /// A message from the TV with the bytes it arrived as.
 typedef ReceivedMessage = ({RemoteEnvelope message, Uint8List bytes});
@@ -31,17 +21,25 @@ typedef ReceivedMessage = ({RemoteEnvelope message, Uint8List bytes});
 /// One remote session's protocol: answers the TV's setup, activation and pings, keeps the state its reports give,
 /// watches for silence and ends once, with a reason.
 final class RemoteSession {
-  /// A session over [_socket] that asks for [_wanted] (pings and power are always asked for).
-  RemoteSession(this._socket, Set<TvFeature> wanted, {required TvClock clock, required Duration idleTimeout})
-    : _wanted = TvFeature.maskOf({...wanted, TvFeature.power}),
-      _clock = clock,
-      _idleTimeout = idleTimeout;
+  /// A session over [_socket] that asks for [_wanted] (pings and power are always asked for) and describes the client
+  /// as [client].
+  RemoteSession(
+    this._socket,
+    Set<TvFeature> wanted, {
+    required TvClock clock,
+    required Duration idleTimeout,
+    TvClientInfo client = TvClientInfo.standard,
+  }) : _wanted = TvFeature.maskOf({...wanted, TvFeature.power}),
+       _client = client.toMessage(),
+       _clock = clock,
+       _idleTimeout = idleTimeout;
 
   /// What a call after [close] throws.
   static const TvCancelledException closedError = TvCancelledException('The session was closed');
 
   final TvSocket _socket;
   final int _wanted;
+  final DeviceInfo _client;
   final TvClock _clock;
   final Duration _idleTimeout;
   final Completer<void> _ready = Completer();
@@ -183,7 +181,7 @@ final class RemoteSession {
         _device = TvDevice.fromInfo(info);
         final mask = _wanted & (features ?? 0);
         _granted = TvFeature.fromMask(mask);
-        send(SetupMessage(features: mask, device: clientDevice));
+        send(SetupMessage(features: mask, device: _client));
       case ActivateMessage():
         send(ActivateMessage(features: TvFeature.maskOf(_granted)));
       case PingMessage(:final id):

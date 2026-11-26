@@ -95,6 +95,9 @@ abstract final class TestTv {
     return value;
   }
 
+  /// The TV's remote service log, from logcat.
+  static Future<String> log() => _adb(['logcat', '-d', '-s', 'AtvRemote.ConnectedClient']);
+
   /// Sets the TV's media volume directly, to restore it after a test.
   static Future<void> setMediaVolume(int level) =>
       shell(['cmd', 'media_session', 'volume', '--stream', '3', '--set', '$level']);

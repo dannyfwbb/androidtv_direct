@@ -31,6 +31,26 @@ final reason = await remote.done;   // null after remote.close(), else why it en
 
 `fingerprint` has no default. Passing `null` is possible, but then the session goes to whatever device answers at the address: addresses on home networks change, and another device that got the TV's old address would receive everything the app sends, typed passwords included. Store the fingerprint from pairing and always pass it.
 
+### Telling the TV who connects
+
+The setup carries a description of the client: `client: TvClientInfo(...)` with the device's model and maker, its operating system (`TvClientOs.android`, `ios` or `unspecified`) and version, and the app's id and version. The TV writes it to its log with each connection and was not seen to show or use it otherwise. The default, `TvClientInfo.standard`, is what clients of the protocol commonly send (Android, version `1`, app `atvremote` `1.0.0`).
+
+```dart
+final remote = await TvRemote.connect(
+  host,
+  identity: identity,
+  fingerprint: fingerprint,
+  client: const TvClientInfo(
+    model: 'iPhone',
+    vendor: 'Apple',
+    os: TvClientOs.ios,
+    osVersion: '18.1',
+    appId: 'com.example.remote',
+    appVersion: '1.4.0',
+  ),
+);
+```
+
 ## Features
 
 The session asks for a set of `TvFeature`s and the TV grants what it offers of it; `remote.features` is the result.

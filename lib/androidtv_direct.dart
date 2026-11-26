@@ -26,6 +26,7 @@ export 'src/pairing/pairing.dart' show TvPairing, TvPairingResult;
 export 'src/probe/probe.dart' show TvProbe;
 export 'src/probe/scan.dart' show TvScanResult;
 export 'src/protocol/key_codes.dart' show TvKey;
+export 'src/remote/client_info.dart' show TvClientInfo, TvClientOs;
 export 'src/remote/features.dart' show TvFeature;
 export 'src/remote/keys.dart' show TvKeyAction, TvKeyHold;
 export 'src/remote/remote.dart' show TvRawMessage, TvRemote;

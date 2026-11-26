@@ -38,12 +38,7 @@ void main() {
     final sent = <(String, String), RemoteEnvelope>{
       ('setup', 'session.txt'): SetupMessage(
         features: 615,
-        device: DeviceInfo(
-          androidRelease: '1',
-          packageName: 'atvremote',
-          serviceVersion: '1.0.0',
-          unknownFields: [ProtoField.varint(3, 1)],
-        ),
+        device: DeviceInfo(os: 1, androidRelease: '1', packageName: 'atvremote', serviceVersion: '1.0.0'),
       ),
       ('activate', 'session.txt'): ActivateMessage(features: 615),
       ('pong', 'session.txt'): PongMessage(id: 1),
