@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import 'dart:async';
+import 'dart:math';
 
 import 'package:androidtv_direct/src/clock.dart';
 import 'package:androidtv_direct/src/errors.dart';
@@ -9,34 +10,46 @@ import 'package:androidtv_direct/src/protocol/key_codes.dart';
 import 'package:androidtv_direct/src/protocol/remote_messages.dart';
 import 'package:androidtv_direct/src/remote/features.dart';
 import 'package:androidtv_direct/src/remote/keys.dart';
+import 'package:androidtv_direct/src/remote/round_trip.dart';
 import 'package:androidtv_direct/src/remote/session.dart';
 import 'package:androidtv_direct/src/voice/chunk_queue.dart';
 
 /// The voice side of a remote session: the one owner of the TV's voice opens and ends.
 ///
-/// An open goes to the start waiting for it; one nobody waits for (it came after the start gave up) is closed again,
-/// so the TV's voice search does not stay open. Every end is placed: the confirmation of the current session's close,
-/// the late confirmation of an earlier close (the emulator sends one right after the next open, with the same id), the
-/// TV ending the current session, or nothing.
+/// Search is pressed once per start, and not again while an earlier press may still be answered: each press opens
+/// one session, and a second open would have to be closed again. An open goes to the start waiting for it; one nobody
+/// waits for (it came after the start gave up) is closed again, so the TV's voice search does not stay open, unless
+/// it is the current session's. Every end is placed: the confirmation of the current session's close, the late
+/// confirmation of an earlier close (the emulator sends one right after the next open, with the same id), the TV
+/// ending the current session, the confirmation of an earlier close while no session is open, or nothing.
 final class VoiceChannel extends SessionPart {
   /// Follows [_session]'s voice messages.
   VoiceChannel(this._session) {
     _session.attach(this);
   }
 
+  /// How long a press of Search counts as on its way: until then another start waits for its open instead of
+  /// pressing again.
+  static const Duration pressAnswered = RoundTrip.ceiling;
+
   final RemoteSession _session;
   Completer<TvVoiceSession>? _starting;
   bool _pace = true;
   TvVoiceSession? _current;
 
-  /// Whether a close this side sent (of a session, or of an open nobody waited for) has no confirmation yet.
-  bool _unconfirmedClose = false;
+  /// When Search was last pressed, while no open has answered it.
+  Duration? _pressedAt;
 
-  /// Until when, after an open that followed an unconfirmed close, an end is taken as that close's confirmation.
-  Duration _lateConfirmationUntil = Duration.zero;
+  /// The closes this side sent (of sessions, or of opens nobody waited for) the TV has not confirmed yet.
+  int _unconfirmedCloses = 0;
+
+  /// Unconfirmed closes whose confirmation may come right after the last open, until [_lateUntil].
+  int _lateConfirmations = 0;
+  Duration _lateUntil = Duration.zero;
 
   /// Presses Search and waits for the TV to open a voice session (at least [timeout], longer as long as the TV's
-  /// answers have been taking), then acknowledges it.
+  /// answers have been taking), then acknowledges it. Search is not pressed again while an earlier press may still be
+  /// answered: its open is waited for instead.
   ///
   /// Throws [TvNotSupportedException] without [TvFeature.voice] and [TvFeature.key], [StateError] while another voice
   /// session is starting or not [TvVoiceSession.done], [TvTimeoutException] when the TV does not open one in time, and
@@ -45,10 +58,13 @@ final class VoiceChannel extends SessionPart {
     _session
       ..require(TvFeature.voice)
       ..require(TvFeature.key);
-    if (_starting != null || !(_current?.isDone ?? true)) throw StateError('A voice session is open');
+    if (_starting != null || _sessionOpen) throw StateError('A voice session is open');
     final starting = _starting = Completer();
     _pace = pace;
-    sendKey(_session, TvKey.search.code, TvKeyAction.press);
+    if (!_pressOnItsWay) {
+      sendKey(_session, TvKey.search.code, TvKeyAction.press);
+      _pressedAt = _session.clock.elapsed;
+    }
     final wait = _session.roundTrip.waitFor(timeout);
     try {
       return await _session.clock.deadline(
@@ -62,13 +78,24 @@ final class VoiceChannel extends SessionPart {
     }
   }
 
+  bool get _sessionOpen {
+    final current = _current;
+    return current != null && !current.isDone;
+  }
+
+  bool get _pressOnItsWay {
+    final pressedAt = _pressedAt;
+    return pressedAt != null && _session.clock.elapsed - pressedAt < pressAnswered;
+  }
+
   @override
   void onMessage(RemoteEnvelope message) {
+    // Proto3 leaves out a zero: a missing id is id 0, on both sides.
     switch (message) {
       case VoiceOpenMessage(:final voiceId):
         _onOpen(voiceId ?? 0);
       case VoiceEndedMessage(:final voiceId):
-        _onEnded(voiceId);
+        _onEnded(voiceId ?? 0);
       default:
     }
   }
@@ -81,35 +108,43 @@ final class VoiceChannel extends SessionPart {
   }
 
   void _onOpen(int voiceId) {
+    _pressedAt = null;
     final starting = _starting;
     _starting = null;
-    if (starting == null) {
-      _session.send(VoiceCloseMessage(voiceId: voiceId));
-      _unconfirmedClose = true;
-      return;
-    }
+    if (starting != null) return _begin(starting, voiceId);
+    if (_sessionOpen && voiceId == _current!.voiceId) return;
+    _session.send(VoiceCloseMessage(voiceId: voiceId));
+    _unconfirmedCloses++;
+  }
+
+  void _begin(Completer<TvVoiceSession> starting, int voiceId) {
     _session.send(VoiceOpenMessage(voiceId: voiceId));
-    _lateConfirmationUntil = _unconfirmedClose
-        ? _session.clock.elapsed + TvVoiceSession.lateConfirmationWindow
-        : Duration.zero;
+    // The closes still unconfirmed may be confirmed right after this open; after the window they are forgotten.
+    _lateConfirmations = _unconfirmedCloses;
+    _unconfirmedCloses = 0;
+    _lateUntil = _session.clock.elapsed + TvVoiceSession.lateConfirmationWindow;
     starting.complete(_current = TvVoiceSession._(this, voiceId, pace: _pace));
   }
 
-  void _onEnded(int? voiceId) {
-    final current = _current;
-    final ours = current != null && !current.isDone && voiceId == current.voiceId;
-    if (ours && current._closing) {
-      _unconfirmedClose = false;
+  void _onEnded(int voiceId) {
+    final current = _sessionOpen && voiceId == _current!.voiceId ? _current! : null;
+    if (current != null && current._closing) {
+      _unconfirmedCloses = max(0, _unconfirmedCloses - 1);
       current._endedByTv();
-    } else if (_unconfirmedClose && (!ours || _session.clock.elapsed < _lateConfirmationUntil)) {
-      _unconfirmedClose = false;
-    } else if (ours) {
+    } else if (_isLateConfirmation) {
+      _lateConfirmations--;
+    } else if (current != null) {
       current._endedByTv();
+    } else if (_unconfirmedCloses > 0) {
+      _unconfirmedCloses--;
     }
   }
 
+  /// Whether an end that just came confirms, late, a close from before the last open.
+  bool get _isLateConfirmation => _lateConfirmations > 0 && _session.clock.elapsed < _lateUntil;
+
   /// The current session sent its close.
-  void _closed() => _unconfirmedClose = true;
+  void _closed() => _unconfirmedCloses++;
 }
 
 enum _State {

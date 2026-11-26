@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:androidtv_direct/androidtv_direct.dart';
 import 'package:androidtv_direct/src/bytes.dart';
 import 'package:androidtv_direct/src/protocol/remote_messages.dart';
+import 'package:androidtv_direct/src/voice/voice.dart';
 import 'package:test/test.dart';
 
 import '../support/fake_clock.dart';
@@ -199,14 +200,15 @@ void main() {
       expect(fake.fromClient.whereType<VoiceOpenMessage>(), isEmpty, reason: 'never acknowledged');
     });
 
-    test('a start retried right after a timeout takes the open that comes late, and closes nothing', () async {
+    test('a start retried right after a timeout waits for the first press, takes its open, closes nothing', () async {
       fake.answerSearch = false;
       final first = remote.startVoice();
       await fake.received<KeyMessage>();
       clock.advance(const Duration(seconds: 2));
       await expectLater(first, throwsA(isA<TvTimeoutException>()));
       final second = remote.startVoice(pace: false);
-      await fake.received<KeyMessage>(count: 2);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(fake.fromClient.whereType<KeyMessage>(), hasLength(1), reason: 'the first press may still be answered');
       // The TV's open, answering the first Search, arrives while the second start waits.
       await fake.sendMessage(RemoteEnvelope.fromTv(recorded('voiceOpen', outgoing: false, file: 'voice.txt').bytes));
       final voice = await second;
@@ -214,6 +216,39 @@ void main() {
       await voice.add(Uint8List(chunk));
       await fake.received<VoiceAudioMessage>();
       expect(fake.fromClient.whereType<VoiceCloseMessage>(), isEmpty);
+    });
+
+    test('an open with the id of the session that is open is never closed', () async {
+      final voice = await remote.startVoice(pace: false);
+      await fake.sendMessage(RemoteEnvelope.fromTv(recorded('voiceOpen', outgoing: false, file: 'voice.txt').bytes));
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(fake.fromClient.whereType<VoiceCloseMessage>(), isEmpty);
+      expect(voice.isOpen, isTrue);
+    });
+
+    test('a press that was never answered no longer holds a start back after a while', () async {
+      fake.answerSearch = false;
+      final first = remote.startVoice();
+      await fake.received<KeyMessage>();
+      clock.advance(const Duration(seconds: 2));
+      await expectLater(first, throwsA(isA<TvTimeoutException>()));
+      clock.advance(VoiceChannel.pressAnswered);
+      fake.answerSearch = true;
+      final voice = await remote.startVoice(pace: false);
+      expect(fake.fromClient.whereType<KeyMessage>(), hasLength(2));
+      expect(voice.isOpen, isTrue);
+    });
+
+    test('an end with no id is the end of session 0', () async {
+      fake.answerSearch = false;
+      final starting = remote.startVoice(pace: false);
+      await fake.received<KeyMessage>();
+      await fake.sendMessage(VoiceOpenMessage());
+      final voice = await starting;
+      expect(voice.voiceId, 0);
+      await fake.sendMessage(VoiceEndedMessage());
+      await voice.done.timeout(const Duration(seconds: 2));
+      expect(voice.endConfirmed, isTrue);
     });
 
     test('the close of an open nobody waited for is confirmed by the end right after the next open', () async {

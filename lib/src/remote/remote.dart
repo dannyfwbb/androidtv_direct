@@ -33,7 +33,9 @@ import 'package:androidtv_direct/src/voice/voice.dart';
 /// sends; an app that keeps sending to a TV that went away learns it only when the writes fail. There is no
 /// reconnecting inside: the app decides when to connect again.
 final class TvRemote {
-  TvRemote._(this._session, Duration textGiveUp) : _text = TextInput(_session, textGiveUp);
+  TvRemote._(this._session, Duration textGiveUp)
+    : _text = TextInput(_session, textGiveUp),
+      _voice = VoiceChannel(_session);
 
   /// The remote port.
   static const int defaultPort = 6466;
@@ -95,7 +97,7 @@ final class TvRemote {
   late final KeyHolds _holds = KeyHolds(_session);
   late final VolumeControl _volume = VolumeControl(_session);
   final TextInput _text;
-  late final VoiceChannel _voice = VoiceChannel(_session);
+  final VoiceChannel _voice;
 
   /// The TV, as it described itself when the session started.
   TvDevice get device => _session.device;
