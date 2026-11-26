@@ -211,12 +211,16 @@ final class _Attempt {
   ConnectionTask<Socket>? _task;
   Socket? _socket;
 
+  /// Completes on [cancel]: a TLS handshake does not notice its plain socket going away, so it races this.
+  final Completer<void> _cancel = Completer();
+
   /// Stops the attempt; does nothing once [open] has returned (the caller owns the socket then).
   void cancel() {
-    if (_opened) return;
+    if (_opened || _cancelled) return;
     _cancelled = true;
     _task?.cancel();
     _socket?.destroy();
+    _cancel.complete();
   }
 
   TvCancelledException _cancelledError([Object? cause]) =>
@@ -256,10 +260,18 @@ final class _Attempt {
   Future<SecureSocket> _secure(Socket socket, SecurityContext context) async {
     try {
       final secured = SecureSocket.secure(socket, context: context, onBadCertificate: _accept);
-      final tls = await clock.deadline(secured, timeout, () {
+      final cancelled = _cancel.future.then<SecureSocket>((_) => throw _cancelledError());
+      final SecureSocket tls;
+      try {
+        tls = await clock.deadline(Future.any([secured, cancelled]), timeout, () {
+          return TvTimeoutException('$target accepted the connection but did not finish TLS within $timeout');
+        });
+      } on Object {
+        // A handshake given up on may still finish later: its socket is nobody's then.
         socket.destroy();
-        return TvTimeoutException('$target accepted the connection but did not finish TLS within $timeout');
-      });
+        secured.then((orphan) => orphan.destroy(), onError: (Object _) {}).ignore();
+        rethrow;
+      }
       if (_cancelled) {
         tls.destroy();
         throw _cancelledError();
