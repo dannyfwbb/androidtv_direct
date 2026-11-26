@@ -28,10 +28,8 @@ void main() {
     test('seed $seed', () async {
       final tv = _HostileTv(Random(seed));
       final fake = await startFakeTv(onPairing: tv.serve);
-      Future<void> expectTyped(Future<Object?> call) => call.then<void>(
-        (_) {},
-        onError: (Object e) => expect(e, isA<TvRemoteException>(), reason: 'seed $seed'),
-      );
+      Future<void> expectTyped(Future<Object?> call) =>
+          call.then<void>((_) {}, onError: (Object e) => expect(e, isA<TvRemoteException>(), reason: 'seed $seed'));
 
       TvPairing? pairing;
       await expectTyped(

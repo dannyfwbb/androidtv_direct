@@ -114,6 +114,26 @@ void main() {
       expect(sync.settled, isTrue);
     });
 
+    test('a step given up on that arrives late, while the next is in flight: the next went with a stale revision and '
+        'goes again', () {
+      final sync = TextSync()..reset('');
+      expect(sync.want('Hello'), const TextReplace(0, 0, 'Hello'));
+      expect(sync.stalled(), (adopt: '', send: null));
+      expect(sync.want('Hello world'), const TextReplace(0, 0, 'Hello world'));
+      // The first edit arrives late; the TV dropped the second, which carried the revision from before the first.
+      expect(sync.report('Hello'), (adopt: null, send: const TextReplace(4, 5, 'o world')));
+      expect(sync.report('Hello world'), (adopt: null, send: null));
+      expect(sync.settled, isTrue);
+    });
+
+    test('a step given up on that arrives late while nothing is in flight is the TV text', () {
+      final sync = TextSync()..reset('ab');
+      expect(sync.want('abc'), const TextReplace(1, 2, 'bc'));
+      expect(sync.stalled(), (adopt: 'ab', send: null));
+      expect(sync.report('abc'), (adopt: 'abc', send: null));
+      expect(sync.wanted, 'abc');
+    });
+
     test('a report while nothing is in flight is a change made on the TV', () {
       final sync = TextSync()..reset('a');
       expect(sync.report('ab'), (adopt: 'ab', send: null));

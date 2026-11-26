@@ -46,8 +46,9 @@ final class TvRemote {
   /// passwords included.
   ///
   /// [features] is what the session asks for; the TV grants what it offers of it ([TvRemote.features]). Power reports
-  /// are always asked for: the session is ready when the TV reports its power state. [textGiveUp] is how long a
-  /// [TvTextField.setText] waits for the TV's report before taking the TV's text as it is. [client] is what the TV is
+  /// are always asked for: the session is ready when the TV reports its power state. [textGiveUp] is the least a
+  /// [TvTextField.setText] waits for the TV's report before taking the TV's text as it is; on a network slower than
+  /// that the session waits as long as the TV's answers have been taking (it measures them from its start). [client] is what the TV is
   /// told about this app and device; the TV only logs it.
   ///
   /// Throws [TvUnreachableException], [TvNoServiceException], [TvWrongTvException], [TvNotPairedException] (the TV does
@@ -147,7 +148,7 @@ final class TvRemote {
   ///
   /// Throws [TvNotSupportedException] without [TvFeature.key] or [TvFeature.volume], or before the TV reported its
   /// volume; [RangeError] for a level out of range; [TvTimeoutException] when a report does not come within
-  /// [stepTimeout] or the level is not reached within [timeout]; [TvCancelledException] when a newer [setVolume]
+  /// [stepTimeout] (or longer, as long as the TV's answers have been taking) or the level is not reached within [timeout]; [TvCancelledException] when a newer [setVolume]
   /// takes over; [ArgumentError] for a timeout that is not longer than zero; and what ended the session if it ends
   /// meanwhile.
   Future<void> setVolume(

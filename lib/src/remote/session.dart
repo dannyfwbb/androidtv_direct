@@ -10,6 +10,7 @@ import 'package:androidtv_direct/src/errors.dart';
 import 'package:androidtv_direct/src/protocol/remote_messages.dart';
 import 'package:androidtv_direct/src/remote/client_info.dart';
 import 'package:androidtv_direct/src/remote/features.dart';
+import 'package:androidtv_direct/src/remote/round_trip.dart';
 import 'package:androidtv_direct/src/remote/state.dart';
 import 'package:androidtv_direct/src/remote/watchdog.dart';
 import 'package:androidtv_direct/src/text/field_tracker.dart';
@@ -67,6 +68,9 @@ final class RemoteSession {
 
   /// The feature bits agreed in the first setup.
   int? _agreed;
+
+  /// When the session sent a message whose answer it waits for (its setup, its activation), until the answer.
+  Duration? _askedAt;
   TvRemoteException? _endReason;
   TvDevice _device = const TvDevice();
   Set<TvFeature> _granted = const {};
@@ -74,6 +78,10 @@ final class RemoteSession {
 
   /// The focused text field, as the TV's reports describe it.
   final FieldTracker field = FieldTracker();
+
+  /// The time the TV takes to answer, measured from the start of the session on; waits for answers that may not come
+  /// use its timeout as their floor.
+  final RoundTrip roundTrip = RoundTrip();
 
   /// The TV, from its setup.
   TvDevice get device => _device;
@@ -207,17 +215,29 @@ final class RemoteSession {
         final agreed = _agreed = _wanted & (features ?? 0);
         _granted = TvFeature.fromMask(agreed);
         send(SetupMessage(features: agreed, device: _client));
+        _askedAt = _clock.elapsed;
       case SetupMessage():
         send(SetupMessage(features: _agreed, device: _client));
       case ActivateMessage():
+        _answered();
         send(ActivateMessage(features: TvFeature.maskOf(_granted)));
+        _askedAt = _clock.elapsed;
       case PingMessage(:final id):
         send(PongMessage(id: id));
       case RefusalMessage():
         _end(_refusalError(message));
       default:
+        _answered();
         _report(message);
     }
+  }
+
+  /// The TV answered what the session asked: the TV's activation answers its setup, the first report its activation.
+  void _answered() {
+    final asked = _askedAt;
+    if (asked == null) return;
+    _askedAt = null;
+    roundTrip.add(_clock.elapsed - asked);
   }
 
   void _report(RemoteEnvelope message) {

@@ -1,0 +1,79 @@
+// Copyright 2026 The androidtv_direct authors
+// SPDX-License-Identifier: Apache-2.0
+
+import 'dart:io';
+
+import 'package:androidtv_direct/androidtv_direct.dart';
+import 'package:test/test.dart';
+
+import '../support/fake_field.dart';
+import '../support/fake_session.dart';
+import '../support/fake_tv.dart';
+import '../support/fixtures.dart';
+
+/// A network slower than the give-up times: reports arrive later than `textGiveUp`, but they arrive, and the session
+/// must wait for them instead of taking the TV's old text, on the real clock.
+void main() {
+  test('setText reaches every text when each report takes longer than textGiveUp', () async {
+    final fake = FakeSession()..latency = const Duration(milliseconds: 250);
+    final tv = await startFakeTv(onRemote: fake.serve);
+    final remote = await TvRemote.connect(
+      InternetAddress.loopbackIPv4,
+      port: tv.remotePort,
+      identity: testClient(),
+      fingerprint: null,
+      features: {...TvFeature.defaults, TvFeature.ime},
+      textGiveUp: const Duration(milliseconds: 100),
+    );
+    addTearDown(remote.close);
+    await fake.focus(FakeField());
+    final field = await remote.textFieldChanges.firstWhere((field) => field != null);
+    final texts = ['Hello', 'Hello world', 'Help', '', 'Привет 👍🏽', 'x' * 40, 'Living room'];
+    for (final text in texts) {
+      expect(await field!.setText(text), text);
+    }
+    expect(remote.textField, same(field));
+  }, timeout: const Timeout(Duration(minutes: 1)));
+
+  test('a report delayed far beyond the measured round trip: the text wanted next still arrives', () async {
+    final fake = FakeSession()..latency = const Duration(milliseconds: 10);
+    final tv = await startFakeTv(onRemote: fake.serve);
+    final remote = await TvRemote.connect(
+      InternetAddress.loopbackIPv4,
+      port: tv.remotePort,
+      identity: testClient(),
+      fingerprint: null,
+      features: {...TvFeature.defaults, TvFeature.ime},
+      textGiveUp: const Duration(milliseconds: 100),
+    );
+    addTearDown(remote.close);
+    final tvField = FakeField();
+    await fake.focus(tvField);
+    final field = (await remote.textFieldChanges.firstWhere((field) => field != null))!;
+    for (final text in ['Hi', 'Hello', 'Hi']) {
+      expect(await field.setText(text), text);
+    }
+    final connection = await fake.connection.future;
+    connection.latency = const Duration(milliseconds: 150);
+    // Given up on: the TV applied it, but its report is still on the way.
+    expect(await field.setText('Hello world'), 'Hi');
+    connection.latency = const Duration(milliseconds: 10);
+    // Sent with the revision from before 'Hello world', so the TV drops it; the late report comes while it waits.
+    expect(await field.setText('Hello world!'), 'Hello world!');
+    expect(tvField.text, 'Hello world!');
+  }, timeout: const Timeout(Duration(minutes: 1)));
+
+  test('setVolume reaches its level when each report takes longer than stepTimeout', () async {
+    final fake = FakeSession()..latency = const Duration(milliseconds: 250);
+    final tv = await startFakeTv(onRemote: fake.serve);
+    final remote = await TvRemote.connect(
+      InternetAddress.loopbackIPv4,
+      port: tv.remotePort,
+      identity: testClient(),
+      fingerprint: null,
+    );
+    addTearDown(remote.close);
+    await remote.setVolume(5, stepTimeout: const Duration(milliseconds: 100));
+    expect(remote.state.volume!.level, 5);
+  }, timeout: const Timeout(Duration(minutes: 1)));
+}

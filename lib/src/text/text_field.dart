@@ -8,6 +8,7 @@ import 'package:androidtv_direct/src/protocol/key_codes.dart';
 import 'package:androidtv_direct/src/protocol/remote_messages.dart';
 import 'package:androidtv_direct/src/remote/features.dart';
 import 'package:androidtv_direct/src/remote/keys.dart';
+import 'package:androidtv_direct/src/remote/round_trip.dart';
 import 'package:androidtv_direct/src/remote/session.dart';
 import 'package:androidtv_direct/src/text/field_kind.dart';
 import 'package:androidtv_direct/src/text/field_tracker.dart';
@@ -47,10 +48,16 @@ final class TvTextField {
   bool _keyboardOpen = false;
   String? _afterMove;
 
-  /// How long [setText] waits for an awaited report. Then an edit with a range goes again as keys (the TV does not
-  /// take ranges), a deletion by Del keys is tried again from the TV's text (TVs may lose keys), and an insertion
-  /// gives way to the TV's text (the field filtered or limited it).
+  /// How long [setText] waits at least for an awaited report; longer when the TV's answers take longer (see
+  /// [RoundTrip]). Then an emptying of the field goes again with a placeholder, a deletion by Del keys is tried again
+  /// from the TV's text (TVs may lose keys), and otherwise the TV's text wins (the field filtered or limited it).
   final Duration giveUpAfter;
+
+  /// When the step in flight went out, until its report.
+  Duration? _stepSentAt;
+
+  /// When the step last given up on went out: its report may still come, late.
+  Duration? _abandonedSentAt;
 
   /// What the field takes: password, several lines, its action key.
   final TvTextFieldKind kind;
@@ -156,7 +163,9 @@ final class TvTextField {
 
   void _onContent() {
     _copyTracker();
+    final wasWaiting = _sync.waiting;
     final report = _sync.report(_session.field.text, cursor: _selection.end);
+    _measureAnswer(wasWaiting: wasWaiting);
     if (_afterMove == null) return _apply(report);
     // The report of the cursor's move: nothing was in flight, so nothing is sent; a text changed on the TV counts.
     if (report.adopt case final text?) _changes.add(text);
@@ -178,7 +187,8 @@ final class TvTextField {
     final step = result.send;
     if (step != null) {
       _sendStep(step);
-      _restartTimer(giveUpAfter, () => _apply(_sync.stalled()));
+      _stepSentAt = _session.clock.elapsed;
+      _restartTimer(_session.roundTrip.waitFor(giveUpAfter), _onStalled);
     }
     if (_sync.waiting) return;
     _timer?.cancel();
@@ -186,6 +196,28 @@ final class TvTextField {
       waiter.complete(_sync.tv);
     }
     _waiting.clear();
+  }
+
+  void _onStalled() {
+    _abandonedSentAt = _stepSentAt;
+    _stepSentAt = null;
+    _apply(_sync.stalled());
+  }
+
+  /// The time a report answered in counts for the round trip: the late answer to a step given up on answers that
+  /// one, and otherwise a report while a step was in flight answers it.
+  void _measureAnswer({required bool wasWaiting}) {
+    final Duration? sentAt;
+    if (_sync.answeredLate) {
+      sentAt = _abandonedSentAt;
+      _abandonedSentAt = null;
+    } else if (wasWaiting) {
+      sentAt = _stepSentAt;
+      _stepSentAt = null;
+    } else {
+      return;
+    }
+    if (sentAt != null) _session.roundTrip.add(_session.clock.elapsed - sentAt);
   }
 
   void _sendStep(TextStep step) {

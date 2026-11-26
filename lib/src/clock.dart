@@ -67,3 +67,6 @@ extension TvClockWaits on TvClock {
 
 /// The shorter of [a] and [b].
 Duration shorter(Duration a, Duration b) => a < b ? a : b;
+
+/// The longer of [a] and [b].
+Duration longer(Duration a, Duration b) => a > b ? a : b;

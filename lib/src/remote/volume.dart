@@ -19,7 +19,8 @@ final class VolumeControl {
   int _calls = 0;
 
   /// Brings the volume to [level]. The emulator ignored a level sent directly, so keys are the way. Mute is left as
-  /// it is. [stepTimeout] limits the wait for each report and [timeout] the whole change.
+  /// it is. [stepTimeout] is the least wait for each report (longer when the TV's answers take longer, see
+  /// [RemoteSession.roundTrip]) and [timeout] limits the whole change.
   Future<void> set(int level, {required Duration stepTimeout, required Duration timeout}) async {
     _session
       ..require(TvFeature.key)
@@ -35,7 +36,7 @@ final class VolumeControl {
       if (call != _calls) throw const TvCancelledException('A newer setVolume took over');
       final left = deadline - _session.clock.elapsed;
       if (left <= Duration.zero) throw TvTimeoutException('The volume did not reach $level within $timeout');
-      await _step(current, toward: level, timeout: shorter(left, stepTimeout));
+      await _step(current, toward: level, timeout: shorter(left, _session.roundTrip.waitFor(stepTimeout)));
     }
   }
 
@@ -48,6 +49,7 @@ final class VolumeControl {
   Future<void> _step(TvVolume before, {required int toward, required Duration timeout}) async {
     final key = toward > before.level ? TvKey.volumeUp : TvKey.volumeDown;
     sendKey(_session, key.code, TvKeyAction.press);
+    final sentAt = _session.clock.elapsed;
     try {
       await _session.next<TvState>(
         _session.changes,
@@ -55,6 +57,7 @@ final class VolumeControl {
         timeout: timeout,
         onTimeout: () => TvTimeoutException('The TV did not report a volume change within $timeout'),
       );
+      _session.roundTrip.add(_session.clock.elapsed - sentAt);
     } on TvTimeoutException {
       // A TV whose press while muted only unmutes, without a new level, still answered: go on with the next press.
       if (_session.state.volume == before) rethrow;

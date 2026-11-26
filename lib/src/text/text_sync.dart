@@ -128,7 +128,9 @@ const SyncOutcome _nothing = (adopt: null, send: null);
 /// flight is a change made on the TV, which the client takes.
 ///
 /// Steps are edits with a range ([replacementFor]), each answered by one report. One that comes back otherwise than
-/// planned, or not at all, means the field filtered or limited the text: the TV's text wins. Emptying the field is
+/// planned, or not at all, means the field filtered or limited the text: the TV's text wins. A step given up on may
+/// still arrive (a network slower than the wait): if it does while the next is in flight, that one went with a stale
+/// revision, which the TV drops, and it is planned again. Emptying the field is
 /// the one step the cursor's place can spoil (an empty edit at the cursor is ignored): when the TV reports the cursor
 /// at the start, or the emptying stalls, it goes again with a placeholder first. A TV that inserts an edit with a
 /// range at the cursor does not take ranges, and gets keys from then on ([byRange] false): Del keys and inserts at
@@ -163,6 +165,13 @@ final class TextSync {
 
   /// Whether the last step was a placeholder: the next emptying goes without one, whatever the cursor.
   bool _placeholder = false;
+
+  /// What the last step given up on would have made of the field: it may still arrive.
+  String? _abandoned;
+
+  /// Whether the last report was the late answer to a step given up on.
+  bool get answeredLate => _answeredLate;
+  bool _answeredLate = false;
   bool _emptyingRetried = false;
   int _replans = 0;
 
@@ -197,6 +206,9 @@ final class TextSync {
   /// The TV reported its field as [text], with the cursor at [cursor] (default: the end).
   SyncOutcome report(String text, {int? cursor}) {
     _take(text, cursor);
+    // After the next report, a step given up on can no longer be told from a change made on the TV.
+    final arrivedLate = _answeredLate = text == _abandoned;
+    _abandoned = null;
     final awaited = _awaited;
     if (awaited == null) return _changedOnTv();
     if (text == awaited) {
@@ -205,6 +217,12 @@ final class TextSync {
     }
     // Del keys are reported one at a time: wait for the last one.
     if (_inFlight case TextKeys(deletes: > 0)) return _nothing;
+    // The step given up on arrived late. The edit in flight carried the field's revision from before it, and the TV
+    // drops such an edit: plan again from the TV's text. (Keys carry no revision, so this is about edits only.)
+    if (arrivedLate) {
+      _settle();
+      return (adopt: null, send: _next());
+    }
     // One edit, one report. The TV inserted it at the cursor: it does not take ranges, and keys repair the field.
     final ignoredRange = text == _ifInserted;
     _settle();
@@ -223,7 +241,9 @@ final class TextSync {
   SyncOutcome stalled() {
     final step = _inFlight;
     final replans = _replans;
+    final abandoned = _awaited;
     _settle();
+    _abandoned = abandoned;
     if (step case TextReplace(start: 0, text: '') when !_emptyingRetried) {
       _emptyingRetried = true;
       _cursorAtStart = true;

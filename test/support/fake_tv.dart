@@ -189,6 +189,9 @@ final class FakeTvConnection {
   /// How writes reach the socket. Each write is flushed before the next, so the client sees the pieces apart.
   FakeTvChunking chunking = FakeTvChunking.current;
 
+  /// How long what is sent takes to reach the client, counted from when it was sent (a slow network).
+  Duration latency = Duration.zero;
+
   /// The certificate the client presented (DER), if any.
   Uint8List? get clientCertificateDer => _socket.peerCertificate?.der;
 
@@ -285,7 +288,12 @@ final class FakeTvConnection {
             for (final byte in bytes) Uint8List.fromList([byte]),
           ]
         : [bytes];
-    _writes = _writes.then((_) => _write(pieces));
+    final due = DateTime.now().add(latency);
+    _writes = _writes.then((_) async {
+      final wait = due.difference(DateTime.now());
+      if (wait > Duration.zero) await Future<void>.delayed(wait);
+      await _write(pieces);
+    });
   }
 
   Future<void> _write(List<Uint8List> pieces) async {

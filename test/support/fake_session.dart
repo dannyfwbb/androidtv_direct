@@ -51,8 +51,12 @@ final class FakeSession {
     return fromClient.whereType<T>().toList();
   }
 
+  /// How long the TV's messages take to reach the client (a slow network).
+  Duration latency = Duration.zero;
+
   /// Plays the TV's side on [c].
   Future<void> serve(FakeTvConnection c) async {
+    c.latency = latency;
     connection.complete(c);
     if (fault == SessionFault.closeFirst) return c.close();
     send(c, _setup());
