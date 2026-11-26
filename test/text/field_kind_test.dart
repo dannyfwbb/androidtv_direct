@@ -27,5 +27,6 @@ void main() {
     expect(kind(1, 3).action, TvFieldAction.search);
     expect(kind(1, 0).action, TvFieldAction.none);
     expect(TvTextFieldKind.fromEditorInfo().password, isFalse);
+    expect((kind(0x81, 3).inputType, kind(0x81, 3).imeOptions), (0x81, 3));
   });
 }

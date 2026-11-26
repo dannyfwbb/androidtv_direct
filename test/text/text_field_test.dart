@@ -111,6 +111,17 @@ void main() {
     expect(await result, '');
   });
 
+  test("the TV's keyboard opening and closing arrives on keyboardChanges", () async {
+    final field = await focus(FakeField());
+    final seen = <bool>[];
+    field.keyboardChanges.listen(seen.add);
+    await fake.sendMessage(KeyboardReport(keyboardRevision: 3, fieldRevision: 1));
+    await fake.sendMessage(KeyboardReport(keyboardRevision: 0, fieldRevision: 1));
+    await until(() => seen.length == 2);
+    expect(seen, [true, false]);
+    expect(field.keyboardOpen, isFalse);
+  });
+
   test('changes made on the TV arrive as changes', () async {
     final tvField = FakeField();
     final field = await focus(tvField);

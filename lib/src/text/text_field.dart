@@ -32,6 +32,7 @@ final class TvTextField {
   final RemoteSession _session;
   final TextSync _sync = TextSync();
   final StreamController<String> _changes = StreamController.broadcast();
+  final StreamController<bool> _keyboardChanges = StreamController.broadcast();
   final List<Completer<String>> _waiting = [];
   Timer? _timer;
   bool _focused = true;
@@ -57,6 +58,9 @@ final class TvTextField {
 
   /// Whether the TV's own on-screen keyboard is open.
   bool get keyboardOpen => _keyboardOpen;
+
+  /// [keyboardOpen] each time it changes. Closes when the field stops.
+  Stream<bool> get keyboardChanges => _keyboardChanges.stream;
 
   /// Texts the field took other than through [setText] reaching its text: edits made on the TV (its remote or its
   /// keyboard; one per typed character), the reports after [insert], and the TV's text when [setText] gave way to it.
@@ -138,7 +142,12 @@ final class TvTextField {
     _apply(_sync.report(_session.field.text));
   }
 
-  void _onKeyboard() => _keyboardOpen = _session.field.keyboardOpen;
+  void _onKeyboard() {
+    final open = _session.field.keyboardOpen;
+    if (open == _keyboardOpen) return;
+    _keyboardOpen = open;
+    _keyboardChanges.add(open);
+  }
 
   /// Takes what the sync decided: a text to adopt, a step to send; completes the waiters once settled.
   void _apply(({String? adopt, TextStep? send}) result) {
@@ -184,6 +193,7 @@ final class TvTextField {
     }
     _waiting.clear();
     unawaited(_changes.close());
+    unawaited(_keyboardChanges.close());
   }
 }
 

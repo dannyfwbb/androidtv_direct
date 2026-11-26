@@ -31,7 +31,13 @@ enum TvFieldAction {
 @immutable
 final class TvTextFieldKind {
   /// Creates the kind.
-  const TvTextFieldKind({this.password = false, this.multiLine = false, this.action = TvFieldAction.none});
+  const TvTextFieldKind({
+    this.password = false,
+    this.multiLine = false,
+    this.action = TvFieldAction.none,
+    this.inputType = 0,
+    this.imeOptions = 0,
+  });
 
   /// Reads the kind from `EditorInfo.inputType` and `EditorInfo.imeOptions`.
   factory TvTextFieldKind.fromEditorInfo({int? inputType, int? imeOptions}) {
@@ -40,6 +46,8 @@ final class TvTextFieldKind {
       password: _isPassword(type),
       multiLine: type & _classMask == _classText && type & _multiLine != 0,
       action: _actionOf(imeOptions ?? 0),
+      inputType: type,
+      imeOptions: imeOptions ?? 0,
     );
   }
 
@@ -51,6 +59,12 @@ final class TvTextFieldKind {
 
   /// The field's action key.
   final TvFieldAction action;
+
+  /// Android's `EditorInfo.inputType` as the TV reported it, for details the other fields do not give.
+  final int inputType;
+
+  /// Android's `EditorInfo.imeOptions` as the TV reported it.
+  final int imeOptions;
 
   static const int _classMask = 0xf;
   static const int _classText = 1;
@@ -84,10 +98,10 @@ final class TvTextFieldKind {
 
   @override
   bool operator ==(Object other) =>
-      other is TvTextFieldKind && other.password == password && other.multiLine == multiLine && other.action == action;
+      other is TvTextFieldKind && other.inputType == inputType && other.imeOptions == imeOptions;
 
   @override
-  int get hashCode => Object.hash(password, multiLine, action);
+  int get hashCode => Object.hash(inputType, imeOptions);
 
   @override
   String toString() =>
