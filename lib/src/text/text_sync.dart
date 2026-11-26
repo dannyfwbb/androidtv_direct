@@ -135,17 +135,28 @@ const SyncOutcome _nothing = (adopt: null, send: null);
 /// at the start, or the emptying stalls, it goes again with a placeholder first. A TV that inserts an edit with a
 /// range at the cursor does not take ranges, and gets keys from then on ([byRange] false): Del keys and inserts at
 /// the cursor, which assume the cursor at the end. Del keys go out at most [maxDeletes] per step, since a TV flooded
-/// with a few hundred keys at once was seen to lose some, and a stalled deletion is planned again from the TV's text.
+/// with a few hundred keys at once was seen to lose some. Keys carry no revision, so a batch is never sent twice: when
+/// its reports stop partway, the keys after the last one were lost and the rest is planned again from the TV's text;
+/// when none came at all, the batch may still arrive, and the TV's text wins.
+///
+/// [answerTime] tells how long the TV took to answer a step, for the session's round-trip estimate.
 final class TextSync {
-  /// Creates the sync; [maxDeletes] caps the Del keys of one step, and [byRange] starts with edits with a range (the
-  /// default) or with keys.
-  TextSync({this.maxDeletes = 30, bool byRange = true}) : _byRange = byRange;
+  /// Creates the sync; [maxDeletes] caps the Del keys of one step, [byRange] starts with edits with a range (the
+  /// default) or with keys, and [now] tells the time for [answerTime].
+  TextSync({this.maxDeletes = 30, bool byRange = true, Duration Function()? now})
+    : _byRange = byRange,
+      _now = now ?? _noClock;
+
+  static Duration _noClock() => Duration.zero;
 
   /// The most Del keys one step sends.
   final int maxDeletes;
 
-  /// How often a stalled deletion by Del keys is planned again from the TV's text before the TV's text wins.
+  /// How often a deletion by Del keys whose reports stopped is planned again from the TV's text before the TV's text
+  /// wins.
   static const int maxReplans = 3;
+
+  final Duration Function() _now;
 
   /// Whether steps are edits with a range. Turned off for good once the TV inserted one at the cursor.
   bool get byRange => _byRange;
@@ -166,14 +177,22 @@ final class TextSync {
   /// Whether the last step was a placeholder: the next emptying goes without one, whatever the cursor.
   bool _placeholder = false;
 
-  /// What the last step given up on would have made of the field: it may still arrive.
+  /// What the last step given up on would have made of the field, and when it went out: it may still arrive.
   String? _abandoned;
+  Duration? _abandonedSentAt;
 
-  /// Whether the last report was the late answer to a step given up on.
-  bool get answeredLate => _answeredLate;
-  bool _answeredLate = false;
+  /// When the step in flight went out, until a report answered it.
+  Duration? _sentAt;
+
+  /// The reports of the Del keys in flight so far.
+  int _keyReports = 0;
   bool _emptyingRetried = false;
   int _replans = 0;
+
+  /// How long the TV took to answer a step, if the last report answered one (late answers included); `null`
+  /// otherwise.
+  Duration? get answerTime => _answerTime;
+  Duration? _answerTime;
 
   /// The text the client wants.
   @visibleForTesting
@@ -206,17 +225,24 @@ final class TextSync {
   /// The TV reported its field as [text], with the cursor at [cursor] (default: the end).
   SyncOutcome report(String text, {int? cursor}) {
     _take(text, cursor);
+    _answerTime = null;
     // After the next report, a step given up on can no longer be told from a change made on the TV.
-    final arrivedLate = _answeredLate = text == _abandoned;
+    final arrivedLate = text == _abandoned;
+    if (arrivedLate) _answerTime = _since(_abandonedSentAt);
     _abandoned = null;
+    _abandonedSentAt = null;
     final awaited = _awaited;
     if (awaited == null) return _changedOnTv();
     if (text == awaited) {
+      _answered();
       _settle();
       return (adopt: null, send: _next());
     }
-    // Del keys are reported one at a time: wait for the last one.
-    if (_inFlight case TextKeys(deletes: > 0)) return _nothing;
+    // Del keys are reported one at a time: the first answers the batch; wait for the last one.
+    if (_inFlight case TextKeys(deletes: > 0)) {
+      if (_keyReports++ == 0) _answered();
+      return _nothing;
+    }
     // The step given up on arrived late. The edit in flight carried the field's revision from before it, and the TV
     // drops such an edit: plan again from the TV's text. (Keys carry no revision, so this is about edits only.)
     if (arrivedLate) {
@@ -225,6 +251,7 @@ final class TextSync {
     }
     // One edit, one report. The TV inserted it at the cursor: it does not take ranges, and keys repair the field.
     final ignoredRange = text == _ifInserted;
+    if (ignoredRange) _answered();
     _settle();
     if (ignoredRange) {
       _byRange = false;
@@ -234,22 +261,24 @@ final class TextSync {
     return _changedOnTv();
   }
 
-  /// The awaited report did not come in time. An emptying of the field goes again once, with a placeholder first (the
-  /// cursor was at the start); a deletion by Del keys is planned again from the TV's text (a TV may lose keys), up to
-  /// [maxReplans] times; otherwise the TV's text wins (the field filtered or limited the text, keeping its length).
+  /// The awaited report did not come in time (for Del keys: no further report). An emptying of the field goes again
+  /// once, with a placeholder first (the cursor was at the start); a deletion by Del keys whose reports stopped partway
+  /// is planned again from the TV's text (the keys after the last report were lost), up to [maxReplans] times;
+  /// otherwise the TV's text wins (the field filtered or limited the text, keeping its length, or the step is late).
   /// Returns the text the client must take, if any, and the step to send, if any.
   SyncOutcome stalled() {
     final step = _inFlight;
     final replans = _replans;
-    final abandoned = _awaited;
+    final keyReports = _keyReports;
+    _abandoned = _awaited;
+    _abandonedSentAt = _sentAt;
     _settle();
-    _abandoned = abandoned;
     if (step case TextReplace(start: 0, text: '') when !_emptyingRetried) {
       _emptyingRetried = true;
       _cursorAtStart = true;
       return (adopt: null, send: _next());
     }
-    if (step case TextKeys(deletes: > 0) when replans < maxReplans) {
+    if (step case TextKeys(deletes: > 0) when keyReports > 0 && replans < maxReplans) {
       _replans = replans + 1;
       return (adopt: null, send: _next());
     }
@@ -266,8 +295,18 @@ final class TextSync {
     _inFlight = null;
     _awaited = null;
     _ifInserted = null;
+    _sentAt = null;
+    _keyReports = 0;
     _replans = 0;
   }
+
+  /// The report answers the step in flight: its time is the answer's.
+  void _answered() {
+    _answerTime = _since(_sentAt);
+    _sentAt = null;
+  }
+
+  Duration? _since(Duration? at) => at == null ? null : _now() - at;
 
   /// The TV's text is the client's now, if it was not already.
   SyncOutcome _changedOnTv() {
@@ -279,6 +318,7 @@ final class TextSync {
   TextStep? _next() {
     final step = _byRange ? _rangeStep() : _keysStep();
     _inFlight = step;
+    if (step != null) _sentAt = _now();
     _awaited = switch (step) {
       null => null,
       TextReplace(:final start, :final text) => _tv.substring(0, start) + text,

@@ -26,14 +26,15 @@ typedef TvSelection = ({int start, int end});
 final class TvTextField {
   TvTextField._(this._session, this.giveUpAfter, this._input)
     : kind = _session.field.kind,
-      _sync = TextSync(byRange: _input._takesRanges) {
+      _sync = TextSync(byRange: _input._takesRanges, now: () => _session.clock.elapsed) {
     _copyTracker();
     _sync.reset(_session.field.text, cursor: _selection.end);
   }
 
   static const TvCancelledException _lostFocus = TvCancelledException('The text field lost the focus');
 
-  /// How long Move End waits for the TV's report of the cursor before keys go out anyway.
+  /// How long Move End waits at least for the TV's report of the cursor before keys go out anyway; longer as long as
+  /// the TV's answers have been taking.
   static const Duration _moveEndWait = Duration(milliseconds: 300);
 
   final RemoteSession _session;
@@ -53,17 +54,11 @@ final class TvTextField {
   /// from the TV's text (TVs may lose keys), and otherwise the TV's text wins (the field filtered or limited it).
   final Duration giveUpAfter;
 
-  /// When the step in flight went out, until its report.
-  Duration? _stepSentAt;
-
-  /// When the step last given up on went out: its report may still come, late.
-  Duration? _abandonedSentAt;
-
   /// What the field takes: password, several lines, its action key.
   final TvTextFieldKind kind;
 
   /// Whether this field still has the focus.
-  bool get isFocused => _focused && !_session.isClosed;
+  bool get isFocused => _focused;
 
   /// The field's text, as the TV last reported it.
   String get text => _sync.tv;
@@ -151,7 +146,7 @@ final class TvTextField {
     _afterMove = value;
     if (!first) return;
     sendKey(_session, TvKey.moveEnd.code, TvKeyAction.press);
-    _restartTimer(_moveEndWait, _afterCursorMoved);
+    _restartTimer(_session.roundTrip.waitFor(_moveEndWait), _afterCursorMoved);
   }
 
   void _afterCursorMoved() {
@@ -163,10 +158,14 @@ final class TvTextField {
 
   void _onContent() {
     _copyTracker();
-    final wasWaiting = _sync.waiting;
     final report = _sync.report(_session.field.text, cursor: _selection.end);
-    _measureAnswer(wasWaiting: wasWaiting);
-    if (_afterMove == null) return _apply(report);
+    if (_sync.answerTime case final time?) _session.roundTrip.add(time);
+    if (_afterMove == null) {
+      _apply(report);
+      // A report that leaves the step in flight (one of several Del keys) shows it progressing: the wait starts again.
+      if (report.send == null && _sync.waiting) _restartGiveUp();
+      return;
+    }
     // The report of the cursor's move: nothing was in flight, so nothing is sent; a text changed on the TV counts.
     if (report.adopt case final text?) _changes.add(text);
     _afterCursorMoved();
@@ -187,8 +186,7 @@ final class TvTextField {
     final step = result.send;
     if (step != null) {
       _sendStep(step);
-      _stepSentAt = _session.clock.elapsed;
-      _restartTimer(_session.roundTrip.waitFor(giveUpAfter), _onStalled);
+      _restartGiveUp();
     }
     if (_sync.waiting) return;
     _timer?.cancel();
@@ -198,27 +196,7 @@ final class TvTextField {
     _waiting.clear();
   }
 
-  void _onStalled() {
-    _abandonedSentAt = _stepSentAt;
-    _stepSentAt = null;
-    _apply(_sync.stalled());
-  }
-
-  /// The time a report answered in counts for the round trip: the late answer to a step given up on answers that
-  /// one, and otherwise a report while a step was in flight answers it.
-  void _measureAnswer({required bool wasWaiting}) {
-    final Duration? sentAt;
-    if (_sync.answeredLate) {
-      sentAt = _abandonedSentAt;
-      _abandonedSentAt = null;
-    } else if (wasWaiting) {
-      sentAt = _stepSentAt;
-      _stepSentAt = null;
-    } else {
-      return;
-    }
-    if (sentAt != null) _session.roundTrip.add(_session.clock.elapsed - sentAt);
-  }
+  void _restartGiveUp() => _restartTimer(_session.roundTrip.waitFor(giveUpAfter), () => _apply(_sync.stalled()));
 
   void _sendStep(TextStep step) {
     switch (step) {

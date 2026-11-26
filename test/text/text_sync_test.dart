@@ -141,6 +141,40 @@ void main() {
     });
   });
 
+  group('answer times', () {
+    test('a step answered, its first Del report, and a late answer measured from its own step', () {
+      var now = Duration.zero;
+      final sync = TextSync(now: () => now)..reset('');
+      sync.want('ab');
+      now = const Duration(milliseconds: 40);
+      sync.report('ab');
+      expect(sync.answerTime, const Duration(milliseconds: 40));
+      // A change made on the TV answers nothing.
+      sync.report('abc');
+      expect(sync.answerTime, isNull);
+      // Given up on at 1 s; its answer comes at 3 s while the next step is in flight.
+      sync.want('abcd');
+      now = const Duration(seconds: 1);
+      sync.stalled();
+      sync.want('abcde');
+      now = const Duration(seconds: 3);
+      sync.report('abcd');
+      expect(sync.answerTime, const Duration(milliseconds: 3000 - 40));
+    });
+
+    test('Del keys: the first report answers the batch', () {
+      var now = Duration.zero;
+      final sync = TextSync(byRange: false, now: () => now)..reset('abc');
+      sync.want('');
+      now = const Duration(milliseconds: 30);
+      sync.report('ab');
+      expect(sync.answerTime, const Duration(milliseconds: 30));
+      now = const Duration(milliseconds: 50);
+      sync.report('a');
+      expect(sync.answerTime, isNull);
+    });
+  });
+
   group('TextSync by keys', () {
     test('Del keys first, then the insert after the last deletion is reported', () {
       final sync = TextSync(byRange: false)..reset('hello');
@@ -171,14 +205,35 @@ void main() {
       expect(sync.stalled(), (adopt: null, send: null));
     });
 
-    test('a stalled deletion is planned again from the TV text, a few times', () {
+    test('a deletion whose reports stop partway goes again for the rest; one never answered is not sent twice', () {
       final sync = TextSync(byRange: false)..reset('abcd');
       expect(sync.want(''), const TextKeys(deletes: 4));
       sync.report('a');
+      // The keys after the last report were lost: the rest goes again.
       expect(sync.stalled(), (adopt: null, send: const TextKeys(deletes: 1)));
-      expect(sync.stalled(), (adopt: null, send: const TextKeys(deletes: 1)));
-      expect(sync.stalled(), (adopt: null, send: const TextKeys(deletes: 1)));
+      // Not a single report for it: it may still arrive, and keys carry no revision. The TV text wins.
       expect(sync.stalled(), (adopt: 'a', send: null));
+    });
+
+    test('a slow deletion given up on is not deleted twice when its reports come late', () {
+      final sync = TextSync(byRange: false)..reset('abcdef');
+      expect(sync.want('abc'), const TextKeys(deletes: 3));
+      expect(sync.stalled(), (adopt: 'abcdef', send: null));
+      for (final text in ['abcde', 'abcd', 'abc']) {
+        expect(sync.report(text), (adopt: text, send: null));
+      }
+      expect((sync.tv, sync.waiting), ('abc', false));
+    });
+
+    test('a deletion stops being planned again after a few rounds of lost keys', () {
+      final sync = TextSync(byRange: false)..reset('abcdefgh');
+      expect(sync.want(''), const TextKeys(deletes: 8));
+      for (final (reported, rest) in [('abcdefg', 7), ('abcdef', 6), ('abcde', 5)]) {
+        sync.report(reported);
+        expect(sync.stalled(), (adopt: null, send: TextKeys(deletes: rest)));
+      }
+      sync.report('abcd');
+      expect(sync.stalled(), (adopt: 'abcd', send: null));
     });
   });
 }

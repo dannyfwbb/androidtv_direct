@@ -63,6 +63,33 @@ void main() {
     expect(tvField.text, 'Hello world!');
   }, timeout: const Timeout(Duration(minutes: 1)));
 
+  test('keys, with the cursor away from the end, when the cursor report takes longer than the Move End wait', () async {
+    final fake = FakeSession()..latency = const Duration(milliseconds: 400);
+    final tv = await startFakeTv(onRemote: fake.serve);
+    final remote = await TvRemote.connect(
+      InternetAddress.loopbackIPv4,
+      port: tv.remotePort,
+      identity: testClient(),
+      fingerprint: null,
+      features: {...TvFeature.defaults, TvFeature.ime},
+      textGiveUp: const Duration(milliseconds: 100),
+    );
+    addTearDown(remote.close);
+    // A field that inserts edits at the cursor teaches the session that this TV takes keys.
+    await fake.focus(FakeField(text: 'x', honoursRanges: false));
+    final first = (await remote.textFieldChanges.firstWhere((field) => field != null))!;
+    await first.setText('');
+    final tvField = FakeField(text: 'abcd', cursor: 0, honoursRanges: false, reportCursorMoves: true);
+    await fake.focus(tvField);
+    final field = (await remote.textFieldChanges.firstWhere((field) => field != null && field.text == 'abcd'))!;
+    final changes = <String>[];
+    field.changes.listen(changes.add);
+    expect(await field.setText('abcdX'), 'abcdX');
+    expect(tvField.text, 'abcdX');
+    expect(tvField.dropped, isEmpty, reason: 'no edit went with a revision from before the cursor moved');
+    expect(changes, isEmpty, reason: 'the report of the cursor is not a change made on the TV');
+  }, timeout: const Timeout(Duration(minutes: 1)));
+
   test('setVolume reaches its level when each report takes longer than stepTimeout', () async {
     final fake = FakeSession()..latency = const Duration(milliseconds: 250);
     final tv = await startFakeTv(onRemote: fake.serve);
