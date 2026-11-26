@@ -171,7 +171,7 @@ void main() {
       expect(await socket.receive(timeout: const Duration(seconds: 5)), [1]);
       await Future<void>.delayed(const Duration(milliseconds: 100));
       final frames = <List<int>>[];
-      socket.listen(frames.add);
+      socket.listen(frames.add, onEnd: (_) {});
       expect(() => socket.receive(timeout: const Duration(seconds: 1)), throwsStateError);
       more.complete();
       await until(() => frames.length == 3);

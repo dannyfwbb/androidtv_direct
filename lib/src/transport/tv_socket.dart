@@ -66,6 +66,7 @@ final class TvSocket {
   final Completer<TvRemoteException?> _ended = Completer();
   Completer<void>? _arrival;
   void Function(Uint8List frame)? _onFrame;
+  void Function(TvRemoteException? reason)? _onEnd;
 
   /// The TV's port.
   final int port;
@@ -109,11 +110,16 @@ final class TvSocket {
     throw await _ended.future ?? const TvCancelledException('The connection was closed from this side');
   }
 
-  /// Hands every frame, the ones already received first, to [onFrame] from now on, as it arrives. [receive] cannot be
-  /// used afterwards; [done] still tells when the connection ends.
-  void listen(void Function(Uint8List frame) onFrame) {
+  /// Hands every frame, the ones already received first, to [onFrame] from now on, as it arrives, and the end of the
+  /// connection to [onEnd] as it happens (`null` when this side closed it). [receive] cannot be used afterwards.
+  void listen(void Function(Uint8List frame) onFrame, {required void Function(TvRemoteException? reason) onEnd}) {
     if (_arrival != null) throw StateError('A receive is waiting');
     _onFrame = onFrame;
+    _onEnd = onEnd;
+    if (_ended.isCompleted) {
+      _ended.future.then(onEnd).ignore();
+      return;
+    }
     while (_frames.isNotEmpty && !isClosed) {
       onFrame(_frames.removeFirst());
     }
@@ -171,6 +177,7 @@ final class TvSocket {
     _note(error == null ? 'closed' : 'ended: ${error.message}');
     _ended.complete(error);
     _wake();
+    _onEnd?.call(error);
   }
 
   void _wake() {
@@ -181,7 +188,7 @@ final class TvSocket {
   void _traceMessage({required bool outgoing, required String kind, required Uint8List body}) {
     final tracer = _tracer;
     if (tracer == null) return;
-    tracer.onEvent(
+    _trace(
       TvMessageTrace(
         at: _clock.elapsed,
         outgoing: outgoing,
@@ -193,7 +200,19 @@ final class TvSocket {
     );
   }
 
-  void _note(String message) => _tracer?.onEvent(TvNoteTrace(at: _clock.elapsed, message: 'port $port: $message'));
+  void _note(String message) => _trace(TvNoteTrace(at: _clock.elapsed, message: 'port $port: $message'));
+
+  /// Hands [event] to the app's tracer. What the tracer throws is the app's error: it goes to the zone, and the
+  /// connection goes on.
+  void _trace(TvTraceEvent event) {
+    final tracer = _tracer;
+    if (tracer == null) return;
+    try {
+      tracer.onEvent(event);
+    } on Object catch (error, stack) {
+      Zone.current.handleUncaughtError(error, stack);
+    }
+  }
 }
 
 /// One connection attempt: TCP, then TLS over it.

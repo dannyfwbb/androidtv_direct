@@ -100,8 +100,12 @@ final class RemoteSession {
 
   /// Makes [part] follow the session until [detach], or until its end, which it is told of.
   void attach(SessionPart part) {
-    if (isClosed) return part.onEnd(_endReason ?? closedError);
-    _parts.add(part);
+    assert(!_parts.contains(part), 'attached twice');
+    if (isClosed) {
+      part.onEnd(_endReason ?? closedError);
+    } else {
+      _parts.add(part);
+    }
   }
 
   /// Stops telling [part] about the session.
@@ -125,8 +129,7 @@ final class RemoteSession {
   /// Throws what ended the session, or [TvTimeoutException] when the TV does not start it in time. The session is
   /// closed after any failure.
   Future<void> start(Duration timeout) async {
-    _socket.listen(_onFrame);
-    _socket.done.then(_onSocketEnd).ignore();
+    _socket.listen(_onFrame, onEnd: _onSocketEnd);
     try {
       await _clock.deadline(
         _ready.future,
@@ -156,11 +159,15 @@ final class RemoteSession {
     final subscription = events.listen((event) {
       if (!found.isCompleted && test(event)) found.complete(event);
     });
-    done.then((reason) {
-      if (!found.isCompleted) found.completeError(reason ?? closedError);
-    }).ignore();
-    // The subscription goes when the wait ends, matched, timed out or failed.
-    return _clock.deadline(found.future, timeout, onTimeout).whenComplete(subscription.cancel);
+    final ending = _EndWatch((reason) {
+      if (!found.isCompleted) found.completeError(reason);
+    });
+    attach(ending);
+    // The subscription and the watch go when the wait ends, matched, timed out or failed.
+    return _clock.deadline(found.future, timeout, onTimeout).whenComplete(() {
+      detach(ending);
+      return subscription.cancel();
+    });
   }
 
   /// Throws [TvNotSupportedException] unless the session has [feature], and what ended the session once it has ended.
@@ -247,14 +254,30 @@ final class RemoteSession {
       _state = next;
       _changes.add(next);
     }
-    // Parts may detach, or end the session, while they are told.
-    for (final part in [..._parts]) {
-      if (isClosed) return;
+    _tellParts((part) {
       part.onMessage(message);
-      if (event != null) part.onFieldEvent(event);
-    }
+      // The part may have detached, or ended the session, meanwhile.
+      if (event != null && _follows(part)) part.onFieldEvent(event);
+    });
     if (message is PowerReport && !_ready.isCompleted) _ready.complete();
   }
+
+  /// Calls [tell] for every part still following the session, in the order they attached; a part detached or the
+  /// session ended by an earlier one is not told. A part that throws is a bug in this package: the session ends, with
+  /// the error as the cause, and the error goes to the zone.
+  void _tellParts(void Function(SessionPart part) tell) {
+    for (final part in [..._parts]) {
+      if (!_follows(part)) continue;
+      try {
+        tell(part);
+      } on Object catch (error, stack) {
+        _end(TvProtocolException('Handling a message failed', cause: error));
+        Zone.current.handleUncaughtError(error, stack);
+      }
+    }
+  }
+
+  bool _follows(SessionPart part) => !isClosed && _parts.contains(part);
 
   static TvRemoteException _refusalError(RefusalMessage refusal) {
     final RemoteEnvelope? refused;
@@ -294,13 +317,29 @@ final class RemoteSession {
     _done.complete(reason);
     if (!_ready.isCompleted) _ready.completeError(reason ?? closedError);
     _ready.future.ignore();
-    final parts = [..._parts];
-    _parts.clear();
-    for (final part in parts) {
-      part.onEnd(reason ?? closedError);
-    }
     unawaited(_changes.close());
     unawaited(_messages.close());
     unawaited(_socket.close());
+    // The session is over before any part hears of it, so nothing a part does then can reach the TV; each part is
+    // told, whatever another one throws.
+    final parts = [..._parts];
+    _parts.clear();
+    for (final part in parts) {
+      try {
+        part.onEnd(reason ?? closedError);
+      } on Object catch (error, stack) {
+        Zone.current.handleUncaughtError(error, stack);
+      }
+    }
   }
+}
+
+/// A wait that fails when the session ends.
+final class _EndWatch extends SessionPart {
+  _EndWatch(this._onEnd);
+
+  final void Function(TvRemoteException reason) _onEnd;
+
+  @override
+  void onEnd(TvRemoteException reason) => _onEnd(reason);
 }
