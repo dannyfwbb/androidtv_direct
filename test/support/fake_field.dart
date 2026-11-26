@@ -1,6 +1,8 @@
 // Copyright 2026 The androidtv_direct authors
 // SPDX-License-Identifier: Apache-2.0
 
+import 'dart:math';
+
 import 'package:androidtv_direct/androidtv_direct.dart';
 import 'package:androidtv_direct/src/protocol/remote_messages.dart';
 import 'package:characters/characters.dart';
@@ -95,10 +97,12 @@ final class FakeField {
       return null;
     }
     final typed = (edit.changes.single.replacement?.text ?? '').characters.where((c) => !reject.contains(c)).join();
-    final next = mode == FieldMode.replace ? typed : text.substring(0, cursor) + typed + text.substring(cursor);
-    final limited = maxLength == null ? next : next.characters.take(maxLength!).string;
-    cursor = mode == FieldMode.replace ? limited.length : (cursor + typed.length).clamp(0, limited.length);
-    text = limited;
+    final (next, nextCursor) = switch (mode) {
+      FieldMode.replace => (typed, typed.length),
+      FieldMode.insert => (text.substring(0, cursor) + typed + text.substring(cursor), cursor + typed.length),
+    };
+    text = maxLength == null ? next : next.characters.take(maxLength!).string;
+    cursor = min(nextCursor, text.length);
     return _changed();
   }
 
