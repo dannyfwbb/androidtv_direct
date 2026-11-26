@@ -15,6 +15,7 @@ import 'package:androidtv_direct/src/remote/keys.dart';
 import 'package:androidtv_direct/src/remote/session.dart';
 import 'package:androidtv_direct/src/remote/state.dart';
 import 'package:androidtv_direct/src/remote/volume.dart' as volume;
+import 'package:androidtv_direct/src/text/text_field.dart';
 import 'package:androidtv_direct/src/trace.dart';
 import 'package:androidtv_direct/src/transport/tv_socket.dart';
 
@@ -27,7 +28,7 @@ import 'package:androidtv_direct/src/transport/tv_socket.dart';
 /// sends; an app that keeps sending to a TV that went away learns it only when the writes fail. There is no
 /// reconnecting inside: the app decides when to connect again.
 final class TvRemote {
-  TvRemote._(this._session);
+  TvRemote._(this._session, Duration textGiveUp) : _text = TextInput(_session, textGiveUp);
 
   /// The remote port.
   static const int defaultPort = 6466;
@@ -40,7 +41,8 @@ final class TvRemote {
   /// passwords included.
   ///
   /// [features] is what the session asks for; the TV grants what it offers of it ([TvRemote.features]). Power reports
-  /// are always asked for: the session is ready when the TV reports its power state.
+  /// are always asked for: the session is ready when the TV reports its power state. [textGiveUp] is how long a
+  /// [TvTextField.setText] waits for the TV's report before taking the TV's text as it is.
   ///
   /// Throws [TvUnreachableException], [TvNoServiceException], [TvWrongTvException], [TvNotPairedException] (the TV does
   /// not know [identity]), [TvTimeoutException] (no TLS within [connectTimeout], or no start within [startTimeout]),
@@ -55,6 +57,7 @@ final class TvRemote {
     Duration connectTimeout = const Duration(seconds: 5),
     Duration startTimeout = const Duration(seconds: 10),
     Duration idleTimeout = const Duration(seconds: 16),
+    Duration textGiveUp = const Duration(milliseconds: 1500),
     TvClock clock = TvClock.system,
     TvTracer? tracer,
     Future<void>? cancelOn,
@@ -77,11 +80,12 @@ final class TvRemote {
     }).ignore();
     await session.start(startTimeout);
     started = true;
-    return TvRemote._(session);
+    return TvRemote._(session, textGiveUp);
   }
 
   final RemoteSession _session;
   late final KeyHolds _holds = KeyHolds(_session);
+  final TextInput _text;
 
   /// The TV, as it described itself when the session started.
   TvDevice get device => _session.device;
@@ -140,6 +144,14 @@ final class TvRemote {
     Duration stepTimeout = const Duration(seconds: 2),
     Duration timeout = const Duration(seconds: 15),
   }) => volume.setVolume(_session, level, stepTimeout: stepTimeout, timeout: timeout);
+
+  /// The text field that has the focus on the TV, or `null`. Always `null` without [TvFeature.ime] (TVs report text
+  /// fields only to sessions with it); typing also needs [TvFeature.key].
+  TvTextField? get textField => features.contains(TvFeature.ime) ? _text.current : null;
+
+  /// The focused text field each time the focus changes: a new [TvTextField], or `null` when no field has the focus.
+  /// Delivered asynchronously: a field may have stopped again by the time it arrives (check [TvTextField.isFocused]).
+  Stream<TvTextField?> get textFieldChanges => _text.focus;
 
   /// Every message from the TV as raw bytes, for messages this package does not handle yet. Experimental: the shape
   /// may change in a minor version.

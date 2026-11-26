@@ -30,6 +30,7 @@ environment:
   sdk: ">=3.9.0 <4.0.0"
 
 dependencies:
+  characters: ^1.4.0
   crypto: ^3.0.6
   meta: ^1.16.0
   pointycastle: '>=4.0.0 <4.1.0'

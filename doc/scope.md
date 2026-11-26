@@ -45,10 +45,10 @@ States: **planned** (designed, not written), **in progress**, **built** (impleme
 
 | Area | State |
 | --- | --- |
-| The focused text field as state: content, cursor, kind (password, action key), keyboard open or closed | planned |
-| `setText`: bring the TV's field to the given text, any script and emoji | planned |
-| Edits made on the TV with its own remote, reported back | planned |
-| The field's action key (Search, Go, Done…) | planned |
+| The focused text field as state: content, cursor, kind (password, action key), keyboard open or closed | built |
+| `setText`: bring the TV's field to the given text, any script and emoji | built |
+| Edits made on the TV with its own remote, reported back | built |
+| The field's action key (Search, Go, Done…) | built |
 
 ### Voice
 

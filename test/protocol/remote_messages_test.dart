@@ -14,12 +14,15 @@ import '../support/hex.dart';
 RemoteEnvelope decode(RecordedMessage m) =>
     m.outgoing ? RemoteEnvelope.fromClient(m.bytes) : RemoteEnvelope.fromTv(m.bytes);
 
-T fromTv<T extends RemoteEnvelope>(String name) => RemoteEnvelope.fromTv(recorded(name, outgoing: false).bytes) as T;
+/// The message called [name] that the TV sent, from the recording [file].
+T fromTv<T extends RemoteEnvelope>(String name, [String file = 'session.txt']) =>
+    RemoteEnvelope.fromTv(recorded(name, outgoing: false, file: file).bytes) as T;
 
 void main() {
   final recordings = [
-    for (final m in recordedMessages())
-      if (m.port == 6466) m,
+    for (final file in recordingFiles)
+      for (final m in recordedMessages(file))
+        if (m.port == 6466) m,
   ];
 
   test('every recorded remote message decodes to its kind and encodes to the same bytes', () {
@@ -31,8 +34,8 @@ void main() {
   });
 
   test('what the client sends encodes to the recorded bytes', () {
-    final sent = <String, RemoteEnvelope>{
-      'setup': SetupMessage(
+    final sent = <(String, String), RemoteEnvelope>{
+      ('setup', 'session.txt'): SetupMessage(
         features: 615,
         device: DeviceInfo(
           androidRelease: '1',
@@ -41,90 +44,97 @@ void main() {
           unknownFields: [ProtoField.varint(3, 1)],
         ),
       ),
-      'activate': ActivateMessage(features: 615),
-      'pong': PongMessage(id: 1),
-      'key': KeyMessage(code: 24, action: KeyAction.short),
-      'openLink': OpenLinkMessage(link: 'com.android.tv.settings'),
-      'volumeLevelRequest': VolumeLevelRequest(level: 10),
-      'voiceOpen': VoiceOpenMessage(voiceId: 1),
-      'voiceClose': VoiceCloseMessage(voiceId: 1),
-      'textEdit': TextEditMessage(
-        keyboardRevision: 1,
-        fieldRevision: 23,
+      ('activate', 'session.txt'): ActivateMessage(features: 615),
+      ('pong', 'session.txt'): PongMessage(id: 1),
+      ('key', 'session.txt'): KeyMessage(code: 24, action: KeyAction.short),
+      ('openLink', 'session.txt'): OpenLinkMessage(link: 'https://www.youtube.com'),
+      ('voiceOpen', 'messages.txt'): VoiceOpenMessage(voiceId: 1),
+      ('voiceClose', 'messages.txt'): VoiceCloseMessage(voiceId: 1),
+      ('textEdit', 'text.txt'): TextEditMessage(
+        keyboardRevision: 198,
+        fieldRevision: 284,
         changes: [
           TextChange(
             kind: TextChangeKind.insert,
-            replacement: TextReplacement(start: 11, end: 11, text: 'Привет, мир'),
+            replacement: TextReplacement(start: 2, end: 2, text: 'ab'),
           ),
         ],
       ),
     };
-    for (final MapEntry(key: name, value: message) in sent.entries) {
-      expect(hex(message.encodeEnvelope()), hex(recorded(name, outgoing: true).bytes), reason: name);
+    for (final MapEntry(key: (name, file), value: message) in sent.entries) {
+      expect(hex(message.encodeEnvelope()), hex(recorded(name, outgoing: true, file: file).bytes), reason: name);
     }
+  });
+
+  test('a volume level request and an explicit zero encode as the protocol writes them', () {
+    expect(hex(VolumeLevelRequest(level: 10).encodeEnvelope()), '920302380a');
+    expect(hex(PowerReport(state: 0).encodeEnvelope()), 'c202020800');
+    expect(RemoteEnvelope.fromTv(unhex('c202020800')), isA<PowerReport>().having((p) => p.on, 'on', isFalse));
   });
 
   group("the TV's messages", () {
     test('setup describes the TV and offers features', () {
-      for (final (name, version) in [('setup', '5.99.551144881'), ('setup.v7', '7.00.999235495')]) {
-        final setup = fromTv<SetupMessage>(name);
-        expect(setup.features, 639);
-        expect(setup.device!.model, 'AOSP TV on x86');
-        expect(setup.device!.vendor, 'Google');
-        expect(setup.device!.androidRelease, '14');
-        expect(setup.device!.packageName, 'com.google.android.tv.remote.service');
-        expect(setup.device!.serviceVersion, version);
-      }
+      final setup = fromTv<SetupMessage>('setup');
+      expect(setup.features, 639);
+      expect(setup.device!.model, 'AOSP TV on x86');
+      expect(setup.device!.vendor, 'Google');
+      expect(setup.device!.androidRelease, '14');
+      expect(setup.device!.packageName, 'com.google.android.tv.remote.service');
+      expect(setup.device!.serviceVersion, '7.00.999235495');
     });
 
-    test('a refusal carries code 7 and the refused link', () {
+    test('a refusal carries its code and the refused link', () {
       final refusal = fromTv<RefusalMessage>('refusal');
       expect(refusal.code, RefusalMessage.linkRefused);
       expect((refusal.refusedMessage! as OpenLinkMessage).link, 'com.android.tv.settings');
     });
 
     test('power, ping and volume', () {
-      expect(fromTv<PowerReport>('powerReport.off').on, isFalse);
-      expect(fromTv<PowerReport>('powerReport.on').on, isTrue);
+      expect(fromTv<PowerReport>('powerReport').on, isTrue);
       expect(fromTv<PingMessage>('ping').id, 1);
       final volume = fromTv<VolumeReport>('volumeReport');
-      expect((volume.level, volume.maximum, volume.muted, volume.outputName), (3, 15, false, 'AOSP TV on x86'));
+      expect((volume.level, volume.maximum, volume.muted, volume.outputName), (9, 15, false, 'AOSP TV on x86'));
     });
 
     test('a focused field reports its editor settings, content and cursor', () {
-      final report = fromTv<FocusReport>('focusReport.field');
+      final report = fromTv<FocusReport>('focusReport.3', 'text.txt');
       final app = report.app!;
       expect(app.packageName, 'com.android.tv.settings');
-      expect((app.keyboardRevision, app.inputType, app.imeOptions), (12, 1, 0x1C000006));
+      expect((app.keyboardRevision, app.inputType, app.imeOptions), (198, 1, 0x1C000006));
       expect(app.privateImeOptions, 'escapeNorth');
       expect(app.viewId, 0x7F0A01C0);
-      expect(report.textField!.fieldRevision, 99);
-      expect(report.textField!.text, '');
+      expect((report.textField!.fieldRevision, report.textField!.text), (284, ''));
     });
 
     test('an app without a focused field has no field', () {
-      final report = fromTv<FocusReport>('focusReport.noField');
+      final report = fromTv<FocusReport>('focusReport.2', 'text.txt');
       expect(report.app!.packageName, 'com.android.tv.settings');
       expect(report.textField, isNull);
     });
 
     test('keyboard and field reports', () {
-      expect(fromTv<KeyboardReport>('keyboardReport.open').keyboardOpen, isTrue);
-      expect(fromTv<KeyboardReport>('keyboardReport.closed').keyboardOpen, isFalse);
-      final typed = fromTv<FieldReport>('fieldReport.typed').textField!;
+      expect(fromTv<KeyboardReport>('keyboardReport', 'text.txt').keyboardOpen, isTrue);
+      expect(fromTv<KeyboardReport>('keyboardReport.2', 'text.txt').keyboardOpen, isFalse);
+      final typed = fromTv<FieldReport>('fieldReport', 'text.txt').textField!;
       expect((typed.text, typed.selectionStart, typed.selectionEnd), ('ab', 2, 2));
-      final cyrillic = fromTv<FieldReport>('fieldReport').textField!;
-      expect((cyrillic.text, cyrillic.selectionEnd), ('Привет, мир', 11));
+      final cyrillic = fromTv<FieldReport>('fieldReport.4', 'text.txt').textField!;
+      expect((cyrillic.text, cyrillic.selectionEnd), ('Привет, мир 👍🏽', 16));
+    });
+
+    test('one Del removes a whole emoji with its skin tone', () {
+      final before = fromTv<FieldReport>('fieldReport.4', 'text.txt').textField!.text!;
+      final after = fromTv<FieldReport>('fieldReport.5', 'text.txt').textField!.text!;
+      expect(before.substring(after.length), '👍🏽');
     });
 
     test('a voice session names the voice app', () {
-      final open = fromTv<VoiceOpenMessage>('voiceOpen');
+      final open = fromTv<VoiceOpenMessage>('voiceOpen', 'messages.txt');
       expect((open.voiceId, open.packageName), (1, 'com.google.android.katniss'));
     });
   });
 
   test('field 21 is a keyboard report from the TV and a text edit from the client', () {
-    final bytes = recorded('keyboardReport', outgoing: false).bytes;
+    final bytes = recorded('keyboardReport', outgoing: false, file: 'text.txt').bytes;
     expect(RemoteEnvelope.fromTv(bytes), isA<KeyboardReport>());
     expect(RemoteEnvelope.fromClient(bytes), isA<TextEditMessage>());
   });

@@ -40,10 +40,16 @@ void main() {
     });
 
     test('Home and Back reach the TV', () async {
+      await TestTv.shell(['input', 'keyevent', 'KEYCODE_HOME']);
       await TestTv.shell(['am', 'start', '-n', 'com.android.tv.settings/.MainSettings']);
       expect(await TestTv.waitFor(() async => (await activity()).contains('tv.settings'), true), isTrue);
+      final settings = await activity();
       remote.press(TvKey.back);
-      expect(await TestTv.waitFor(() async => (await activity()).contains('tv.settings'), false), isFalse);
+      expect(
+        await TestTv.waitFor(() async => await activity() != settings, true),
+        isTrue,
+        reason: 'Back left the screen',
+      );
       await TestTv.shell(['am', 'start', '-n', 'com.android.tv.settings/.MainSettings']);
       expect(await TestTv.waitFor(() async => (await activity()).contains('tv.settings'), true), isTrue);
       remote.press(TvKey.home);

@@ -7,6 +7,7 @@ import 'dart:typed_data';
 import 'package:androidtv_direct/androidtv_direct.dart';
 import 'package:androidtv_direct/src/protocol/remote_messages.dart';
 
+import 'fake_field.dart';
 import 'fake_tv.dart';
 import 'fixtures.dart';
 
@@ -55,6 +56,21 @@ final class FakeSession {
     }
   }
 
+  /// The focused text field, if any: keys and text edits go to it.
+  FakeField? field;
+
+  /// Gives [newField] the focus and reports it.
+  Future<void> focus(FakeField newField) async {
+    field = newField;
+    await sendMessage(newField.focusReport());
+  }
+
+  /// Takes the focus away from the field and reports it.
+  Future<void> unfocus() async {
+    field = null;
+    await sendMessage(FocusReport(app: FocusedApp(packageName: 'com.example.tv')));
+  }
+
   /// Whether the volume keys change [volume] and report it, as a TV does. Off to test a TV that does not answer.
   bool answerVolumeKeys = true;
 
@@ -71,6 +87,12 @@ final class FakeSession {
         send(c, ActivateMessage().encodeEnvelope());
       case ActivateMessage() when fault != SessionFault.noPower:
         _startReports(c);
+      case KeyMessage(:final code?) when field != null && (code == TvKey.del.code || code == TvKey.moveEnd.code):
+        final answer = field!.onKey(code);
+        if (answer != null) send(c, answer.encodeEnvelope());
+      case TextEditMessage() when field != null:
+        final answer = field!.onEdit(message);
+        if (answer != null) send(c, answer.encodeEnvelope());
       case KeyMessage(:final code, :final action) when answerVolumeKeys && action != KeyAction.release:
         _volumeKey(c, code);
       case OpenLinkMessage(:final link) when link == null || !link.contains(':'):

@@ -18,7 +18,10 @@ void main() {
   });
 
   test('splitting the recorded stream at every position gives the same frames', () {
-    final bodies = [for (final m in recordedMessages()) m.bytes];
+    final bodies = [
+      for (final file in recordingFiles)
+        for (final m in recordedMessages(file)) m.bytes,
+    ];
     final stream = Uint8List.fromList([for (final body in bodies) ...encodeFrame(body)]);
     for (var split = 0; split <= stream.length; split++) {
       final reader = FrameReader();

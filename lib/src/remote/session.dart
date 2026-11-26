@@ -12,6 +12,7 @@ import 'package:androidtv_direct/src/protocol/remote_messages.dart';
 import 'package:androidtv_direct/src/remote/features.dart';
 import 'package:androidtv_direct/src/remote/state.dart';
 import 'package:androidtv_direct/src/remote/watchdog.dart';
+import 'package:androidtv_direct/src/text/field_tracker.dart';
 import 'package:androidtv_direct/src/transport/tv_socket.dart';
 
 /// What the client says about itself in its setup: the values recorded from an existing client of the protocol
@@ -44,6 +45,7 @@ final class RemoteSession {
   final Completer<TvRemoteException?> _done = Completer();
   final StreamController<TvState> _changes = StreamController.broadcast();
   final StreamController<ReceivedMessage> _messages = StreamController.broadcast();
+  final StreamController<FieldEvent> _fieldEvents = StreamController.broadcast(sync: true);
   Watchdog? _watchdog;
   bool _heardFromTv = false;
   TvRemoteException? _endReason;
@@ -78,6 +80,12 @@ final class RemoteSession {
 
   /// Every state change.
   Stream<TvState> get changes => _changes.stream;
+
+  /// The focused text field, as the TV's reports describe it.
+  final FieldTracker field = FieldTracker();
+
+  /// What each report changed about the focused field, as it is applied.
+  Stream<FieldEvent> get fieldEvents => _fieldEvents.stream;
 
   /// Every message from the TV, with its bytes.
   Stream<ReceivedMessage> get messages => _messages.stream;
@@ -164,6 +172,8 @@ final class RemoteSession {
   }
 
   void _report(RemoteEnvelope message) {
+    final event = field.apply(message);
+    if (event != null) _fieldEvents.add(event);
     final next = state.apply(message);
     if (!identical(next, state)) {
       state = next;
@@ -212,6 +222,7 @@ final class RemoteSession {
     _ready.future.ignore();
     unawaited(_changes.close());
     unawaited(_messages.close());
+    unawaited(_fieldEvents.close());
     unawaited(_socket.close());
   }
 }
