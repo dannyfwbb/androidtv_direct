@@ -89,7 +89,7 @@ final class TvTextField {
     _checkUsable();
     final done = Completer<String>();
     _waiting.add(done);
-    if (_afterMove != null || (!_sync.byRange && _cursorAway)) {
+    if (_afterMove != null || _needsMoveEnd) {
       _moveCursorToEnd(value);
     } else {
       _apply((adopt: null, send: _sync.want(value)));
@@ -136,6 +136,9 @@ final class TvTextField {
 
   bool get _cursorAway => _selection.start != _selection.end || _selection.end != text.length;
 
+  /// Keys need the cursor at the end; it is moved only between steps, so the wait for a step is never cut short.
+  bool get _needsMoveEnd => !_sync.byRange && !_sync.waiting && _cursorAway;
+
   void _moveCursorToEnd(String value) {
     final first = _afterMove == null;
     _afterMove = value;
@@ -154,8 +157,10 @@ final class TvTextField {
   void _onContent() {
     _copyTracker();
     final report = _sync.report(_session.field.text, cursor: _selection.end);
-    if (_afterMove != null) return _afterCursorMoved();
-    _apply(report);
+    if (_afterMove == null) return _apply(report);
+    // The report of the cursor's move: nothing was in flight, so nothing is sent; a text changed on the TV still counts.
+    if (report.adopt case final text?) _changes.add(text);
+    _afterCursorMoved();
   }
 
   void _onKeyboard() {

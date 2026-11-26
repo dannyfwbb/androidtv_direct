@@ -259,37 +259,44 @@ final class _Attempt {
   }
 
   Future<SecureSocket> _secure(Socket socket, SecurityContext context) async {
+    final SecureSocket tls;
     try {
-      final secured = SecureSocket.secure(socket, context: context, onBadCertificate: _accept);
-      final cancelled = _cancel.future.then<SecureSocket>((_) => throw _cancelledError());
-      final SecureSocket tls;
-      try {
-        tls = await clock.deadline(Future.any([secured, cancelled]), timeout, () {
-          return TvTimeoutException('$target accepted the connection but did not finish TLS within $timeout');
-        });
-      } on Object {
-        // A handshake given up on may still finish later: its socket is nobody's then.
-        socket.destroy();
-        secured.then((orphan) => orphan.destroy(), onError: (Object _) {}).ignore();
-        rethrow;
-      }
-      if (_cancelled) {
-        tls.destroy();
-        throw _cancelledError();
-      }
-      // onBadCertificate runs only for certificates that fail verification, which every self-signed one does here;
-      // checked again in case one ever passes.
-      final certificate = tls.peerCertificate;
-      if (pin != null && (certificate == null || !_presentsPin(certificate))) {
-        tls.destroy();
-        throw _wrongTv();
-      }
-      return tls;
+      tls = await _handshake(socket, context);
     } on IOException catch (e) {
       if (_cancelled) throw _cancelledError(e);
       if (_mismatch) throw _wrongTv(e);
       if (_closedByPeer(e)) throw TvClosedException('$target closed the connection during the TLS handshake', cause: e);
       throw TvProtocolException('The TLS handshake with $target failed', cause: e);
+    }
+    if (_cancelled) {
+      tls.destroy();
+      throw _cancelledError();
+    }
+    // onBadCertificate runs only for certificates that fail verification, which every self-signed one does here;
+    // checked again in case one ever passes.
+    final certificate = tls.peerCertificate;
+    if (pin != null && (certificate == null || !_presentsPin(certificate))) {
+      tls.destroy();
+      throw _wrongTv();
+    }
+    return tls;
+  }
+
+  /// The TLS handshake within [timeout], racing [cancel]. A handshake given up on may still finish later: its socket
+  /// is nobody's then, and is destroyed.
+  Future<SecureSocket> _handshake(Socket socket, SecurityContext context) async {
+    final secured = SecureSocket.secure(socket, context: context, onBadCertificate: _accept);
+    final cancelled = _cancel.future.then<SecureSocket>((_) => throw _cancelledError());
+    try {
+      return await clock.deadline(
+        Future.any([secured, cancelled]),
+        timeout,
+        () => TvTimeoutException('$target accepted the connection but did not finish TLS within $timeout'),
+      );
+    } on Object {
+      socket.destroy();
+      secured.then((orphan) => orphan.destroy(), onError: (Object _) {}).ignore();
+      rethrow;
     }
   }
 

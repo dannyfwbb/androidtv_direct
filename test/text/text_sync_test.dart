@@ -21,12 +21,13 @@ void main() {
   });
 
   group('replacementFor', () {
-    TextReplace? plan(String tv, String wanted, [int? cursor]) =>
-        replacementFor(tv, wanted, cursor: cursor ?? tv.length);
+    TextReplace? plan(String tv, String wanted, {bool cursorAtStart = false}) =>
+        replacementFor(tv, wanted, cursorAtStart: cursorAtStart);
 
-    test('replaces what follows the common beginning, to the end', () {
-      expect(plan('hello', 'help'), const TextReplace(3, 5, 'p'));
-      expect(plan('hello world', ''), const TextReplace(0, 11, ''));
+    test('deletes what follows the common beginning first, keeping the character before', () {
+      expect(plan('hello', 'help'), const TextReplace(2, 5, 'l'));
+      expect(plan('abc_world', 'abc'), const TextReplace(2, 9, 'c'));
+      expect(plan('abc', 'abd'), const TextReplace(1, 3, 'b'));
       expect(plan('same', 'same'), isNull);
     });
 
@@ -34,30 +35,21 @@ void main() {
       expect(plan('', 'abc'), const TextReplace(0, 0, 'abc'));
     });
 
-    test('text added at the end replaces the last character too: an empty range would go to the cursor', () {
-      expect(plan('ab', 'abc'), const TextReplace(1, 2, 'bc'));
+    test('text added at the end goes with the character before: an empty range would go to the cursor', () {
+      expect(plan('hel', 'help'), const TextReplace(2, 3, 'lp'));
       expect(plan('ok 👍🏽', 'ok 👍🏽!'), const TextReplace(3, 7, '👍🏽!'));
     });
 
-    test('a change that keeps the length is split: the deletion goes first', () {
-      expect(plan('abc', 'abd'), const TextReplace(2, 3, ''));
-      expect(plan('hello_world', 'hello_there'), const TextReplace(6, 11, ''));
-    });
-
-    test('a deletion that starts at the cursor takes the character before along', () {
-      expect(plan('abc_world', 'abc', 3), const TextReplace(2, 9, 'c'));
-      expect(plan('abc', 'abd', 2), const TextReplace(1, 3, 'b'));
-    });
-
-    test('emptying the field with the cursor at its start puts a placeholder of another length first', () {
-      expect(plan('_world', '', 0), const TextReplace(0, 6, '_'));
-      expect(plan('x', '', 0), const TextReplace(0, 1, 'xx'));
-      expect(plan('👍🏽', '', 0), const TextReplace(0, 4, '👍🏽👍🏽'));
+    test('emptying the field is an empty edit, or with the cursor at the start a placeholder of another length', () {
+      expect(plan('_world', ''), const TextReplace(0, 6, ''));
+      expect(plan('_world', '', cursorAtStart: true), const TextReplace(0, 6, '_'));
+      expect(plan('x', '', cursorAtStart: true), const TextReplace(0, 1, 'xx'));
+      expect(plan('👍🏽', '', cursorAtStart: true), const TextReplace(0, 4, '👍🏽👍🏽'));
     });
 
     test('positions count UTF-16 code units, cuts fall between characters as the user sees them', () {
-      expect(plan('éé', 'é'), const TextReplace(2, 4, ''));
-      expect(plan('👨‍👩‍👧 x', '👨‍👩‍👧'), const TextReplace(8, 10, ''));
+      expect(plan('éé', 'é'), const TextReplace(0, 4, 'é'));
+      expect(plan('👨‍👩‍👧 x', '👨‍👩‍👧'), const TextReplace(0, 10, '👨‍👩‍👧'));
     });
   });
 
@@ -71,11 +63,17 @@ void main() {
       expect(sync.settled, isTrue);
     });
 
-    test('a replacement that keeps the length goes as a deletion, then the rest', () {
+    test('a replacement goes as a deletion, then the rest', () {
       final sync = TextSync()..reset('abc');
-      expect(sync.want('abd'), const TextReplace(2, 3, ''));
-      expect(sync.report('ab'), (adopt: null, send: const TextReplace(1, 2, 'bd')));
-      expect(sync.report('abd'), (adopt: null, send: null));
+      expect(sync.want('abXd'), const TextReplace(1, 3, 'b'));
+      expect(sync.report('ab'), (adopt: null, send: const TextReplace(1, 2, 'bXd')));
+      expect(sync.report('abXd'), (adopt: null, send: null));
+    });
+
+    test('a field at its length limit cuts the addition and keeps its text: the TV text wins', () {
+      final sync = TextSync()..reset('abc');
+      expect(sync.want('abcd'), const TextReplace(2, 3, 'cd'));
+      expect(sync.stalled(), (adopt: 'abc', send: null));
     });
 
     test('a report other than the one planned is the field changing the text: the TV text wins', () {
@@ -85,43 +83,41 @@ void main() {
       expect((sync.wanted, sync.waiting), ('abc', false));
     });
 
-    test('an edit with a range that is not answered goes again as keys, and keys stay', () {
-      final sync = TextSync()..reset('abcdef');
-      expect(sync.want('ab'), const TextReplace(2, 6, ''));
-      expect(sync.stalled(), (adopt: null, send: const TextKeys(deletes: 4)));
-      expect(sync.byRange, isFalse);
-      for (final text in ['abcde', 'abcd', 'abc']) {
-        expect(sync.report(text), (adopt: null, send: null));
-      }
-      expect(sync.report('ab'), (adopt: null, send: null));
-      expect(sync.want('a'), const TextKeys(deletes: 1));
+    test('a stalled edit is a field that kept its text (a limit, a filter): the TV text wins, ranges stay', () {
+      final sync = TextSync()..reset('hello');
+      expect(sync.want('hello!'), const TextReplace(4, 5, 'o!'));
+      expect(sync.stalled(), (adopt: 'hello', send: null));
+      expect(sync.want('hello'), isNull);
+      expect((sync.byRange, sync.waiting), (true, false));
     });
 
     test('a TV that inserts an edit with a range at the cursor gets keys, which repair the field', () {
       final sync = TextSync()..reset('hello');
-      expect(sync.want('help'), const TextReplace(3, 5, 'p'));
-      expect(sync.report('hellop'), (adopt: null, send: const TextKeys(deletes: 3)));
+      expect(sync.want('hel'), const TextReplace(2, 5, 'l'));
+      expect(sync.report('hellol'), (adopt: null, send: const TextKeys(deletes: 3)));
       expect(sync.byRange, isFalse);
     });
 
-    test('an insertion into an empty field that is not answered gives way to the TV text', () {
-      final sync = TextSync()..reset('');
-      sync.want('a!');
-      expect(sync.stalled(), (adopt: '', send: null));
-      expect((sync.wanted, sync.waiting, sync.byRange), ('', false, true));
+    test('an emptying that stalls (the cursor was at the start) goes again once, with a placeholder first', () {
+      final sync = TextSync()..reset('abc');
+      expect(sync.want(''), const TextReplace(0, 3, ''));
+      expect(sync.stalled(), (adopt: null, send: const TextReplace(0, 3, 'a')));
+      expect(sync.report('a', cursor: 1), (adopt: null, send: const TextReplace(0, 1, '')));
+      expect(sync.stalled(), (adopt: 'a', send: null), reason: 'only once');
+    });
+
+    test('a TV that always reports the cursor at the start gets one placeholder, then the emptying', () {
+      final sync = TextSync()..reset('a', cursor: 0);
+      expect(sync.want(''), const TextReplace(0, 1, 'aa'));
+      expect(sync.report('aa', cursor: 0), (adopt: null, send: const TextReplace(0, 2, '')));
+      expect(sync.report('', cursor: 0), (adopt: null, send: null));
+      expect(sync.settled, isTrue);
     });
 
     test('a report while nothing is in flight is a change made on the TV', () {
       final sync = TextSync()..reset('a');
       expect(sync.report('ab'), (adopt: 'ab', send: null));
       expect(sync.wanted, 'ab');
-    });
-
-    test('the cursor the TV reports shapes the next edit', () {
-      final sync = TextSync()..reset('abc_world', cursor: 3);
-      expect(sync.want('abc'), const TextReplace(2, 9, 'c'));
-      expect(sync.report('abc', cursor: 3), (adopt: null, send: null));
-      expect(sync.want(''), const TextReplace(0, 3, ''));
     });
   });
 
@@ -139,6 +135,12 @@ void main() {
       expect(sync.report('abcd'), (adopt: null, send: const TextKeys(deletes: 3)));
       expect(sync.report('a'), (adopt: null, send: null));
       expect(sync.settled, isTrue);
+    });
+
+    test('an insert the field changed is the TV text at once', () {
+      final sync = TextSync(byRange: false)..reset('');
+      expect(sync.want('abc'), const TextKeys(insert: 'abc'));
+      expect(sync.report('ab'), (adopt: 'ab', send: null));
     });
 
     test('a stalled insertion gives way to the TV text', () {

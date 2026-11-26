@@ -135,6 +135,20 @@ void main() {
       },
     );
 
+    test('a TV whose first press while muted only unmutes still gets there, one step wait later', () async {
+      final remote = await connect();
+      fake.upOnlyUnmutes = true;
+      await until(() => remote.state.volume != null);
+      await remote.setVolume(0);
+      expect(remote.state.volume!.muted, isTrue);
+      final rising = remote.setVolume(2);
+      await until(() => remote.state.volume!.muted == false);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      clock.advance(const Duration(seconds: 2));
+      await rising;
+      expect((remote.state.volume!.level, fake.volume), (2, 2));
+    });
+
     test('a newer call takes over from an older one', () async {
       final remote = await connect();
       await until(() => remote.state.volume != null);

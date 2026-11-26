@@ -100,6 +100,9 @@ final class FakeSession {
   /// Whether the sound is muted: the emulator mutes at level 0.
   bool muted = false;
 
+  /// Whether volume up while muted only unmutes, without a new level (as some TVs may), instead of both.
+  bool upOnlyUnmutes = false;
+
   static final VolumeReport _recordedVolume =
       RemoteEnvelope.fromTv(sessionMessage('volumeReport', outgoing: false)) as VolumeReport;
 
@@ -149,6 +152,7 @@ final class FakeSession {
     if (step > 0 && muted) {
       muted = false;
       _reportVolume(c);
+      if (upOnlyUnmutes) return;
     }
     final next = (volume + step).clamp(0, _recordedVolume.maximum!);
     if (next == volume) return;

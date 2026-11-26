@@ -107,7 +107,7 @@ final class _CacheView {
   /// Entries by lower-case name.
   final Map<String, List<_Entry>> byName = {};
 
-  /// The instances of the browsed types, once each, as first announced.
+  /// The instances of the browsed types, once each, in the case of their latest announcement.
   final List<String> instances = [];
 
   /// [instances], lower-case.
@@ -292,7 +292,11 @@ final class _Session {
   /// The instances [answers] name: PTR targets and the owners of SRV and TXT records.
   Set<String> _instancesIn(List<DnsRecord> answers) => {
     for (final r in answers)
-      if (r.data case DnsPointer(:final target)) target else if (r.type != DnsType.a && r.type != DnsType.aaaa) r.name,
+      ?switch (r.data) {
+        DnsPointer(:final target) => target,
+        DnsSrv() || DnsText() => r.name,
+        _ => null,
+      },
   };
 
   /// Only what belongs to the browsed types: their PTRs, the instances those name (in the cache or in [answers]), and

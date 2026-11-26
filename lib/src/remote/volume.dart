@@ -44,15 +44,20 @@ final class VolumeControl {
   ///
   /// Only a new level counts: volume up while muted is reported twice (the unmute at the same level, then the new
   /// level), and taking the first for the step would leave every later report one press behind, until a press at
-  /// either end of the range is never answered.
-  Future<void> _step(TvVolume before, {required int toward, required Duration timeout}) {
+  /// either end of the range is never answered. A step that brought only an unmute counts once its wait is over.
+  Future<void> _step(TvVolume before, {required int toward, required Duration timeout}) async {
     final key = toward > before.level ? TvKey.volumeUp : TvKey.volumeDown;
     sendKey(_session, key.code, TvKeyAction.press);
-    return _session.next<TvState>(
-      _session.changes,
-      (state) => state.volume?.level != before.level,
-      timeout: timeout,
-      onTimeout: () => TvTimeoutException('The TV did not report a volume change within $timeout'),
-    );
+    try {
+      await _session.next<TvState>(
+        _session.changes,
+        (state) => state.volume?.level != before.level,
+        timeout: timeout,
+        onTimeout: () => TvTimeoutException('The TV did not report a volume change within $timeout'),
+      );
+    } on TvTimeoutException {
+      // A TV whose press while muted only unmutes, without a new level, still answered: go on with the next press.
+      if (_session.state.volume == before) rethrow;
+    }
   }
 }

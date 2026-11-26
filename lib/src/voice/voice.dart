@@ -13,7 +13,7 @@ import 'package:androidtv_direct/src/voice/chunk_queue.dart';
 
 /// Presses Search and waits up to [timeout] for the TV to open a voice session, then acknowledges it.
 ///
-/// With [afterUnconfirmed] (the last session's close was never confirmed), an end the TV sends within
+/// With [afterUnconfirmed] (the last session's close was never confirmed), the first end the TV sends within
 /// [TvVoiceSession.staleEndWindow] of the open is taken as that confirmation, arriving late, and not as the end of the
 /// new session: the emulator sends one so when Search comes soon after such a close, and both sessions share an id.
 ///
@@ -81,7 +81,7 @@ final class TvVoiceSession {
     _session.done.then((reason) => _fail(reason ?? RemoteSession.closedError)).ignore();
     _endedByTv = _session
         .messagesOf<VoiceEndedMessage>()
-        .where((ended) => ended.voiceId == voiceId && _session.clock.elapsed >= staleEndsUntil)
+        .where((ended) => ended.voiceId == voiceId && !_isStaleEnd(staleEndsUntil))
         .listen((_) => _onEndedByTv());
   }
 
@@ -108,6 +108,7 @@ final class TvVoiceSession {
   final ChunkQueue _audio = ChunkQueue(chunkBytes);
   final Completer<void> _done = Completer();
   late final StreamSubscription<VoiceEndedMessage> _endedByTv;
+  bool _staleEndSeen = false;
   _State _state = _State.open;
   Object? _error;
   Timer? _paceTimer;
@@ -217,6 +218,13 @@ final class TvVoiceSession {
     if (!_session.isClosed) _session.send(VoiceCloseMessage(voiceId: voiceId));
     _confirmTimer = _session.clock.timer(endConfirmation, _finish);
     _wake();
+  }
+
+  /// Whether an end that just came is the late confirmation of the session before: the first one within the window.
+  bool _isStaleEnd(Duration until) {
+    if (_staleEndSeen || _session.clock.elapsed >= until) return false;
+    _staleEndSeen = true;
+    return true;
   }
 
   void _onEndedByTv() {

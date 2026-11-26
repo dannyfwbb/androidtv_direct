@@ -70,32 +70,34 @@ TextKeys textDifference(String from, String to) {
   return TextKeys(deletes: from.characters.length - same, insert: to.characters.skip(same).string);
 }
 
-/// The edit that turns [tv] into [wanted] by replacing what follows their common beginning, shaped so the TV applies
-/// it and reports it; `null` when they are the same. [cursor] is where the TV last reported the cursor.
+/// The next edit toward [wanted] from [tv], shaped so the TV applies it and reports it; `null` when they are the same.
 ///
-/// On the emulator an edit replaces its range wherever the cursor is, with three exceptions the edit steers around:
-/// an empty range inserts at the cursor (so text added at the end replaces the last character too), an empty
-/// replacement that starts at the cursor is ignored (so it takes the character before along, or, at the very start,
-/// puts a placeholder the next step removes), and a change that keeps the length is applied but not reported (so it
-/// is split: the deletion first, the rest in the next step).
-TextReplace? replacementFor(String tv, String wanted, {required int cursor}) {
+/// What follows the common beginning is deleted first ([_deletion]); the rest is added in a later step. The two never
+/// go in one edit: the TV reports a change only when the length changes, and a replacement a field cuts or filters
+/// could come out at the old length but with another text, which the client would never hear of. Added text goes
+/// with the character before it (an empty range would insert at the cursor, wherever that is), so a field that cuts
+/// it keeps its old text at worst. An edit replaces its range wherever the cursor is, so the cursor the TV reports,
+/// which it does not keep up to date, matters only for emptying the field ([cursorAtStart]).
+TextReplace? replacementFor(String tv, String wanted, {bool cursorAtStart = false}) {
   if (tv == wanted) return null;
   final same = tv.characters.take(_commonCharacters(tv, wanted)).string.length;
-  var start = same;
-  if (start == tv.length && start > 0) start = _beforeLast(tv, start);
-  var text = wanted.substring(start);
-  if (start + text.length == tv.length) text = '';
-  if (text.isEmpty && start == cursor) {
-    if (start > 0) {
-      final kept = start;
-      start = _beforeLast(tv, start);
-      text = tv.substring(start, kept);
-    } else {
-      final first = tv.characters.first;
-      text = first.length == tv.length ? first + first : first;
-    }
+  if (same < tv.length) return _deletion(tv, same, cursorAtStart: cursorAtStart);
+  if (tv.isEmpty) return TextReplace(0, 0, wanted);
+  final start = _beforeLast(tv, same);
+  return TextReplace(start, tv.length, wanted.substring(start));
+}
+
+/// Deletes from [start] to the end with an edit the TV cannot ignore: it puts back the character before [start], so
+/// its text is never empty. At the very start there is none: the field is emptied with an empty edit, unless
+/// [cursorAtStart] says the TV would ignore that, and then it gets a placeholder of another length first.
+TextReplace _deletion(String tv, int start, {required bool cursorAtStart}) {
+  if (start > 0) {
+    final from = _beforeLast(tv, start);
+    return TextReplace(from, tv.length, tv.substring(from, start));
   }
-  return TextReplace(start, tv.length, text);
+  if (!cursorAtStart) return TextReplace(0, tv.length, '');
+  final first = tv.characters.first;
+  return TextReplace(0, tv.length, first.length == tv.length ? first + first : first);
 }
 
 /// How many characters (as the user sees them) [a] and [b] begin with in common.
@@ -125,11 +127,13 @@ const SyncOutcome _nothing = (adopt: null, send: null);
 /// what the user types meanwhile waits and goes out as one step after the report. A report while nothing is in
 /// flight is a change made on the TV, which the client takes.
 ///
-/// Steps are edits with a range ([replacementFor]), each answered by one report; one that comes back otherwise than
-/// planned means the field filtered or limited the text, and the TV's text wins. A TV that does not take ranges (it
-/// does not answer such an edit, or inserts it at the cursor) gets keys from then on ([byRange] false): Del keys and
-/// inserts at the cursor, which assume the cursor at the end of the field. Del keys go out at most [maxDeletes] per step: a TV flooded with a few hundred
-/// keys at once was seen to lose some, and a stalled deletion is planned again from the TV's text.
+/// Steps are edits with a range ([replacementFor]), each answered by one report. One that comes back otherwise than
+/// planned, or not at all, means the field filtered or limited the text: the TV's text wins. Emptying the field is
+/// the one step the cursor's place can spoil (an empty edit at the cursor is ignored): when the TV reports the cursor
+/// at the start, or the emptying stalls, it goes again with a placeholder first. A TV that inserts an edit with a
+/// range at the cursor does not take ranges, and gets keys from then on ([byRange] false): Del keys and inserts at
+/// the cursor, which assume the cursor at the end. Del keys go out at most [maxDeletes] per step, since a TV flooded
+/// with a few hundred keys at once was seen to lose some, and a stalled deletion is planned again from the TV's text.
 final class TextSync {
   /// Creates the sync; [maxDeletes] caps the Del keys of one step, and [byRange] starts with edits with a range (the
   /// default) or with keys.
@@ -141,7 +145,7 @@ final class TextSync {
   /// How often a stalled deletion by Del keys is planned again from the TV's text before the TV's text wins.
   static const int maxReplans = 3;
 
-  /// Whether steps are edits with a range. Turned off for good once one is not answered.
+  /// Whether steps are edits with a range. Turned off for good once the TV inserted one at the cursor.
   bool get byRange => _byRange;
   bool _byRange;
 
@@ -153,6 +157,13 @@ final class TextSync {
 
   /// What an edit in flight would make of the field if the TV inserted it at the cursor instead.
   String? _ifInserted;
+
+  /// Whether the TV last reported the cursor at the start, or an emptying of the field stalled.
+  bool _cursorAtStart = false;
+
+  /// Whether the last step was a placeholder: the next emptying goes without one, whatever the cursor.
+  bool _placeholder = false;
+  bool _emptyingRetried = false;
   int _replans = 0;
 
   /// The text the client wants.
@@ -171,24 +182,21 @@ final class TextSync {
 
   /// A field got the focus with [text] and the cursor at [cursor] (default: the end); nothing is in flight.
   void reset(String text, {int? cursor}) {
-    _tv = text;
-    _cursor = cursor ?? text.length;
+    _take(text, cursor);
     _wanted = text;
-    _inFlight = null;
-    _awaited = null;
-    _replans = 0;
+    _settle();
   }
 
   /// The client wants [text]. Returns the step to send now, or `null` to wait for the TV.
   TextStep? want(String text) {
     _wanted = text;
+    _emptyingRetried = false;
     return _awaited == null ? _next() : null;
   }
 
   /// The TV reported its field as [text], with the cursor at [cursor] (default: the end).
   SyncOutcome report(String text, {int? cursor}) {
-    _tv = text;
-    _cursor = cursor ?? text.length;
+    _take(text, cursor);
     final awaited = _awaited;
     if (awaited == null) return _changedOnTv();
     if (text == awaited) {
@@ -196,7 +204,7 @@ final class TextSync {
       return (adopt: null, send: _next());
     }
     // Del keys are reported one at a time: wait for the last one.
-    if (_inFlight is TextKeys) return _nothing;
+    if (_inFlight case TextKeys(deletes: > 0)) return _nothing;
     // One edit, one report. The TV inserted it at the cursor: it does not take ranges, and keys repair the field.
     final ignoredRange = text == _ifInserted;
     _settle();
@@ -208,24 +216,30 @@ final class TextSync {
     return _changedOnTv();
   }
 
-  /// The awaited report did not come in time. An edit with a range goes again as keys (the TV does not take ranges);
-  /// a deletion by Del keys is planned again from the TV's text (a TV may lose keys), up to [maxReplans] times;
-  /// otherwise the TV's text wins (the field filters or limits its input). Returns the text the client must take, if
-  /// any, and the step to send, if any.
+  /// The awaited report did not come in time. An emptying of the field goes again once, with a placeholder first (the
+  /// cursor was at the start); a deletion by Del keys is planned again from the TV's text (a TV may lose keys), up to
+  /// [maxReplans] times; otherwise the TV's text wins (the field filtered or limited the text, keeping its length).
+  /// Returns the text the client must take, if any, and the step to send, if any.
   SyncOutcome stalled() {
     final step = _inFlight;
-    _inFlight = null;
-    _awaited = null;
-    _ifInserted = null;
-    if (step is TextReplace && step.start < step.end) {
-      _byRange = false;
+    final replans = _replans;
+    _settle();
+    if (step case TextReplace(start: 0, text: '') when !_emptyingRetried) {
+      _emptyingRetried = true;
+      _cursorAtStart = true;
       return (adopt: null, send: _next());
     }
-    if (step is TextKeys && step.deletes > 0 && _replans < maxReplans) {
-      _replans++;
+    if (step case TextKeys(deletes: > 0) when replans < maxReplans) {
+      _replans = replans + 1;
       return (adopt: null, send: _next());
     }
     return _changedOnTv();
+  }
+
+  void _take(String text, int? cursor) {
+    _tv = text;
+    _cursor = cursor ?? text.length;
+    _cursorAtStart = _cursor == 0 && text.isNotEmpty;
   }
 
   void _settle() {
@@ -243,18 +257,22 @@ final class TextSync {
   }
 
   TextStep? _next() {
-    final step = _byRange ? replacementFor(_tv, _wanted, cursor: _cursor) : _keysStep();
+    final step = _byRange ? _rangeStep() : _keysStep();
     _inFlight = step;
     _awaited = switch (step) {
       null => null,
       TextReplace(:final start, :final text) => _tv.substring(0, start) + text,
       TextKeys(:final deletes, :final insert) => _tv.characters.skipLast(deletes).string + insert,
     };
-    _ifInserted = switch (step) {
-      TextReplace(:final start, :final end, :final text) when start < end =>
-        _tv.substring(0, _cursor) + text + _tv.substring(_cursor),
-      _ => null,
-    };
+    return step;
+  }
+
+  TextReplace? _rangeStep() {
+    final step = replacementFor(_tv, _wanted, cursorAtStart: _cursorAtStart && !_placeholder);
+    // A placeholder is the only step at the start whose text is not the wanted one.
+    _placeholder = step != null && step.start == 0 && step.text.isNotEmpty && step.text != _wanted;
+    final ranged = step != null && step.start < step.end;
+    _ifInserted = ranged ? _tv.substring(0, _cursor) + step.text + _tv.substring(_cursor) : null;
     return step;
   }
 

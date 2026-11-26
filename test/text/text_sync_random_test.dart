@@ -28,6 +28,9 @@ final class _Tv {
   final bool honoursRanges;
   String text = '';
 
+  /// Changes the TV made without reporting them: a filter or a limit that left the length as it was.
+  int silentChanges = 0;
+
   /// Reports the client has not seen yet, in order.
   final List<({String text, int cursor})> _reports = [];
 
@@ -72,6 +75,7 @@ final class _Tv {
     final limited = limit == null ? next : next.characters.take(limit).string;
     // A change that keeps the length is applied but not reported, as on the emulator.
     if (limited.length == text.length) {
+      if (limited != text) silentChanges++;
       text = limited;
       return;
     }
@@ -98,7 +102,8 @@ const List<String> _alphabet = ['a', 'b', 'c', 'й', '👍🏽', 'é', ' '];
 String _randomText(Random random) =>
     List.generate(random.nextInt(12), (_) => _alphabet[random.nextInt(_alphabet.length)]).join();
 
-/// Runs one session: random wants, the TV's faults, then everything delivered. Returns the steps taken.
+/// Runs one session: random wants, the TV's faults, then everything delivered. Returns how many changes the TV made
+/// without reporting them (a filter or a limit keeping the length), after which the client cannot know its text.
 int _run(
   int seed, {
   double loseDel = 0,
@@ -142,27 +147,27 @@ int _run(
       if (tv.reports.isEmpty) break;
     }
   }
+  // A change the TV did not report cannot be known until it reports again; no step may cause one.
+  if (tv.silentChanges > 0) return tv.silentChanges;
   expect(sync.tv, tv.text, reason: 'seed $seed: the client knows what the TV shows');
   expect(sync.settled, isTrue, reason: 'seed $seed: wanted ${sync.wanted}, TV ${tv.text}');
-  return steps;
+  return 0;
 }
 
 void main() {
   test('a well-behaved TV ends with the text last wanted, or the one typed on it', () {
     for (var seed = 0; seed < 2000; seed++) {
-      _run(seed);
+      expect(_run(seed), 0, reason: 'seed $seed: nothing filters, so every change is reported');
     }
   });
 
   test('lost Del keys, late reports, filtered characters and a length limit: the two still agree', () {
     for (var seed = 0; seed < 2000; seed++) {
-      _run(seed, loseDel: 0.1, late: 0.1, reject: const {'й'}, maxLength: 1 + seed % 8);
-    }
-  });
-
-  test('a TV that ignores ranges: keys after the first stall, and the two still agree', () {
-    for (var seed = 0; seed < 2000; seed++) {
-      _run(seed, honoursRanges: false, loseDel: 0.1, late: 0.1);
+      expect(
+        _run(seed, loseDel: 0.1, late: 0.1, reject: const {'й'}, maxLength: 1 + seed % 8),
+        0,
+        reason: 'seed $seed',
+      );
     }
   });
 

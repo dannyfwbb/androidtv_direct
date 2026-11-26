@@ -277,6 +277,22 @@ void main() {
       await fake.received<VoiceAudioMessage>();
     });
 
+    test('after an unconfirmed close, only the first end right after the open is taken as the late one', () async {
+      fake
+        ..answerVoiceClose = false
+        ..confirmCloseOnNextOpen = true;
+      final first = await remote.startVoice(pace: false);
+      final closing = first.close();
+      await fake.received<VoiceCloseMessage>();
+      clock.advance(TvVoiceSession.endConfirmation);
+      await closing;
+      final second = await remote.startVoice(pace: false);
+      await fake.received<VoiceOpenMessage>(count: 2);
+      await fake.sendMessage(RemoteEnvelope.fromTv(recorded('voiceEnded', outgoing: false, file: 'voice.txt').bytes));
+      await second.done.timeout(const Duration(seconds: 2));
+      expect(second.endConfirmed, isTrue);
+    });
+
     test("after a confirmed close, an end right after the open is the new session's", () async {
       final first = await remote.startVoice(pace: false);
       await first.close();

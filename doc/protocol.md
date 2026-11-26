@@ -184,7 +184,7 @@ An edit from the client is message 21 with 1 the keyboard revision and 2 the fie
 - Text from `start` to `end` is replaced by the edit's text, wherever the cursor is, and the cursor goes to the end of the new text. An end past the field's end counts as its end.
 - An empty range (`start` = `end`) inserts at the cursor instead, whatever the positions say.
 - An empty text whose range starts exactly at the cursor does nothing.
-- The TV reports a change only when the text's length changes: a replacement of the same length is applied silently.
+- The TV reports a change only when the text's length changes: a replacement of the same length is applied silently. The package therefore deletes and adds in separate edits.
 - Delete (key code 67) deletes before the cursor, once per character as the user sees it. Delete keys sent in quick succession were seen to be lost. The cursor keys, Move End and Move Home sent through the remote did not move the field's cursor.
 - The edit is accepted only with the field's **current revisions**, and every accepted edit or deletion changes the field revision. The new revision arrives with the TV's next report of the field. An edit sent before that report is dropped without an error. The package therefore keeps one change in flight and sends what the user typed in the meantime as one edit after the report.
 - The revisions to use are those of the focus report (message 20); the keyboard report's are only a fallback. Some TVs ignore edits made with the latter.
