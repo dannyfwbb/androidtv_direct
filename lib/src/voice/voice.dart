@@ -147,8 +147,11 @@ final class TvVoiceSession {
   /// Sends the audio left, the last chunk padded with silence, ends the session and waits for [done]. Does nothing
   /// more once the session is ending or has ended. Throws what ended the remote session if it ends first.
   Future<void> close() async {
-    if (_state == _State.open) await _sendRest();
-    if (_state == _State.closing) _sendClose();
+    if (_state == _State.open) {
+      await _sendRest();
+      // Only the call that started closing ends the session, once the rest is out.
+      if (_state == _State.closing) _sendClose();
+    }
     await done;
   }
 

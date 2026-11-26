@@ -1,8 +1,6 @@
 // Copyright 2026 The androidtv_direct authors
 // SPDX-License-Identifier: Apache-2.0
 
-import 'dart:async';
-
 import 'package:androidtv_direct/src/errors.dart';
 
 /// Runs [body]. When [cancelOn] completes before [body] does, [abort] runs (it should make [body] fail soon, for
@@ -19,7 +17,8 @@ Future<T> cancellable<T>(
   cancelOn?.whenComplete(() {
     if (finished) return;
     cancelled = true;
-    unawaited(abort());
+    // A failing abort changes nothing: the body fails or finishes either way.
+    abort().ignore();
   }).ignore();
   try {
     return await body();

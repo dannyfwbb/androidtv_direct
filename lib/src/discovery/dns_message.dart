@@ -249,24 +249,27 @@ final class _Reader {
     _offset += 10;
     _need(length);
     final end = _offset + length;
-    final data = _data(type, end);
+    final data = _data(type, length);
     if (_offset > end) throw const FormatException('A record overruns');
     _offset = end;
     if (data == null || klass & _classMask != _classIn) return null;
     return DnsRecord(name: name, type: type, ttl: ttl, cacheFlush: klass & _topBit != 0, data: data);
   }
 
-  /// The data of a record of [type] that ends at [end].
-  DnsData? _data(int type, int end) => switch (type) {
-    DnsType.ptr => DnsPointer(_name()),
-    DnsType.srv => _srv(),
-    DnsType.txt => DnsText(_strings(end)),
-    DnsType.a when end - _offset == 4 => _address(end, InternetAddressType.IPv4),
-    DnsType.aaaa when end - _offset == 16 => _address(end, InternetAddressType.IPv6),
-    // An address of the wrong size: skipped, never stored as one.
-    DnsType.a || DnsType.aaaa => null,
-    _ => DnsRaw(Uint8List.fromList(_bytes.sublist(_offset, end))),
-  };
+  /// The data of a record of [type], [length] bytes from the current offset.
+  DnsData? _data(int type, int length) {
+    final end = _offset + length;
+    return switch (type) {
+      DnsType.ptr => DnsPointer(_name()),
+      DnsType.srv => _srv(),
+      DnsType.txt => DnsText(_strings(end)),
+      DnsType.a when length == 4 => _address(end, InternetAddressType.IPv4),
+      DnsType.aaaa when length == 16 => _address(end, InternetAddressType.IPv6),
+      // An address of the wrong size: skipped, never stored as one.
+      DnsType.a || DnsType.aaaa => null,
+      _ => DnsRaw(Uint8List.fromList(_bytes.sublist(_offset, end))),
+    };
+  }
 
   DnsSrv _srv() {
     _need(6);

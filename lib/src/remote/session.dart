@@ -122,8 +122,15 @@ final class RemoteSession {
     required Duration timeout,
     required TvRemoteException Function() onTimeout,
   }) {
-    final ended = done.then<T>((reason) => throw reason ?? closedError);
-    return _clock.deadline(Future.any([events.firstWhere(test), ended]), timeout, onTimeout);
+    final found = Completer<T>();
+    final subscription = events.listen((event) {
+      if (!found.isCompleted && test(event)) found.complete(event);
+    });
+    done.then((reason) {
+      if (!found.isCompleted) found.completeError(reason ?? closedError);
+    }).ignore();
+    // The subscription goes when the wait ends, matched, timed out or failed.
+    return _clock.deadline(found.future, timeout, onTimeout).whenComplete(subscription.cancel);
   }
 
   /// Throws [TvNotSupportedException] unless the session has [feature], and what ended the session once it has ended.

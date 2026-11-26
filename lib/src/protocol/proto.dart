@@ -35,14 +35,14 @@ enum WireType {
 /// One field of a protobuf message as it was on the wire.
 final class ProtoField {
   /// A varint field.
-  ProtoField.varint(this.number, int value) : wireType = WireType.varint, _payload = value {
+  ProtoField.varint(this.number, int value) : wireType = WireType.varint, _payload = _Varint(value) {
     _checkNumber(number);
   }
 
   /// A length-delimited field.
   ProtoField.bytes(this.number, List<int> value)
     : wireType = WireType.lengthDelimited,
-      _payload = Uint8List.fromList(value) {
+      _payload = _Bytes(Uint8List.fromList(value)) {
     _checkNumber(number);
   }
 
@@ -54,26 +54,32 @@ final class ProtoField {
   /// How the value is encoded.
   final WireType wireType;
 
-  /// The value: an `int` for a varint, the bytes for every other wire type.
-  final Object _payload;
+  final _Payload _payload;
 
   /// The value of a varint field.
-  int get asInt => wireType == WireType.varint ? _payload as int : throw _mismatch('a varint');
+  int get asInt => switch (_payload) {
+    _Varint(:final value) => value,
+    _Bytes() => throw _mismatch('a varint'),
+  };
 
   /// The value of a length-delimited field. Do not modify it.
-  Uint8List get asBytes =>
-      wireType == WireType.lengthDelimited ? _payload as Uint8List : throw _mismatch('length-delimited');
+  Uint8List get asBytes => switch (_payload) {
+    _Bytes(:final bytes) when wireType == WireType.lengthDelimited => bytes,
+    _ => throw _mismatch('length-delimited'),
+  };
 
   /// The value of a length-delimited field as UTF-8 text.
   String get asString => utf8.decode(asBytes);
 
   /// Writes the value as it was read: a varint, a length and bytes, or fixed bytes.
   void _writeValue(BytesBuilder out) {
-    final payload = _payload;
-    if (payload is int) return writeVarint(out, payload);
-    payload as Uint8List;
-    if (wireType == WireType.lengthDelimited) writeVarint(out, payload.length);
-    out.add(payload);
+    switch (_payload) {
+      case _Varint(:final value):
+        writeVarint(out, value);
+      case _Bytes(:final bytes):
+        if (wireType == WireType.lengthDelimited) writeVarint(out, bytes.length);
+        out.add(bytes);
+    }
   }
 
   FormatException _mismatch(String expected) =>
@@ -81,9 +87,8 @@ final class ProtoField {
 
   @override
   String toString() => switch (_payload) {
-    final int value => '$number: $value',
-    final Uint8List bytes => '$number: ${wireType.name} (${bytes.length} bytes)',
-    _ => '$number',
+    _Varint(:final value) => '$number: $value',
+    _Bytes(:final bytes) => '$number: ${wireType.name} (${bytes.length} bytes)',
   };
 
   static bool _validNumber(int number) => number >= 1 && number <= _maxFieldNumber;
@@ -94,6 +99,23 @@ final class ProtoField {
 }
 
 const int _maxFieldNumber = (1 << 29) - 1;
+
+/// What a field holds: a varint's value, or the bytes of every other wire type.
+sealed class _Payload {
+  const _Payload();
+}
+
+final class _Varint extends _Payload {
+  const _Varint(this.value);
+
+  final int value;
+}
+
+final class _Bytes extends _Payload {
+  const _Bytes(this.bytes);
+
+  final Uint8List bytes;
+}
 
 /// Reads the fields of one protobuf message.
 ///
@@ -123,7 +145,7 @@ abstract final class ProtoReader {
     switch (type) {
       case 0:
         final value = readVarint(bytes, offset);
-        return (ProtoField._(number, WireType.varint, value.value), offset + value.length);
+        return (ProtoField._(number, WireType.varint, _Varint(value.value)), offset + value.length);
       case 1:
         return _fixed(bytes, offset, number, WireType.fixed64, 8);
       case 2:
@@ -147,7 +169,7 @@ abstract final class ProtoReader {
 
   static (ProtoField, int) _slice(Uint8List bytes, int start, int number, WireType type, int length) {
     final value = Uint8List.sublistView(bytes, start, start + length);
-    return (ProtoField._(number, type, value), start + length);
+    return (ProtoField._(number, type, _Bytes(value)), start + length);
   }
 }
 

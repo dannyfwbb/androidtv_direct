@@ -73,7 +73,8 @@ final class TvMdnsBrowser implements TvServiceBrowser {
 
 /// A cached record from one sender.
 final class _Entry {
-  _Entry(this.record, this.received, this.expires, this.from) : name = record.name.toLowerCase();
+  _Entry(this.record, {required this.received, required this.expires, required this.from})
+    : name = record.name.toLowerCase();
 
   final DnsRecord record;
 
@@ -298,7 +299,12 @@ final class _Session {
         continue;
       }
       final record = r.ttl > _maxTtl ? r.withTtl(_maxTtl) : r;
-      _cache[key] = _Entry(record, now, now + Duration(seconds: record.ttl), sender);
+      _cache[key] = _Entry(
+        record,
+        received: now,
+        expires: now + Duration(seconds: record.ttl),
+        from: sender,
+      );
       stored = true;
     }
     return stored;

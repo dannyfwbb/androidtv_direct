@@ -87,6 +87,15 @@ void main() {
     await expectLater(scan, emitsInOrder([emitsError(isStateError), emitsDone]));
   });
 
+  test('a probe failing with something other than a TV error is no result, and the scan still ends', () async {
+    final results = await scanHosts(
+      [1, 2],
+      concurrency: 2,
+      identify: (_) async => throw ArgumentError('bad host'),
+    ).toList();
+    expect(results, isEmpty);
+  });
+
   test('a concurrency below one is refused', () {
     expect(() => TvProbe.scan(const ['a'], concurrency: 0), throwsArgumentError);
   });

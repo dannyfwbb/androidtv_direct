@@ -3,7 +3,6 @@
 
 import 'dart:async';
 
-import 'package:androidtv_direct/src/errors.dart';
 import 'package:androidtv_direct/src/identity/tv_identity.dart';
 import 'package:meta/meta.dart';
 
@@ -79,8 +78,9 @@ final class _Scan {
     TvIdentity? tv;
     try {
       tv = await _identify(host);
-    } on TvRemoteException {
-      // Nothing there, something else there, or a bad host: not a result.
+    } on Object {
+      // Nothing there, something else there, or a bad host (an ArgumentError): not a result, and never one that
+      // leaves the scan waiting for this probe.
     }
     _running--;
     if (_cancelled) return;

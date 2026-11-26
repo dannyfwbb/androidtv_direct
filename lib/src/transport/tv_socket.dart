@@ -133,20 +133,15 @@ final class TvSocket {
     _socket.destroy();
   }
 
+  /// Waits for a frame or the end of the connection, up to [timeout].
   Future<void> _waitForFrame(Duration timeout) async {
     final arrival = _arrival = Completer();
-    var timedOut = false;
-    final timer = _clock.timer(timeout, () {
-      timedOut = true;
-      if (!arrival.isCompleted) arrival.complete();
-    });
     try {
-      await Future.any([arrival.future, _ended.future]);
+      await _clock.sleep(timeout, cancelOn: Future.any([arrival.future, _ended.future]));
     } finally {
-      timer.cancel();
       _arrival = null;
     }
-    if (timedOut && _frames.isEmpty) throw TvTimeoutException('No message from port $port within $timeout');
+    if (_frames.isEmpty && !isClosed) throw TvTimeoutException('No message from port $port within $timeout');
   }
 
   void _onData(Uint8List chunk) {
@@ -271,7 +266,8 @@ final class _Attempt {
       }
       // onBadCertificate runs only for certificates that fail verification, which every self-signed one does here;
       // checked again in case one ever passes.
-      if (pin != null && !_pinned(tls.peerCertificate)) {
+      final certificate = tls.peerCertificate;
+      if (pin != null && (certificate == null || !_presentsPin(certificate))) {
         tls.destroy();
         throw _wrongTv();
       }
@@ -284,13 +280,13 @@ final class _Attempt {
   }
 
   /// Whether to go on with the TV's [certificate]: always without a pin, otherwise only for the pinned key.
-  bool _accept(X509Certificate certificate) {
-    _presented = certificateFingerprint(certificate.der);
-    return pin == null || _presented == pin;
-  }
+  bool _accept(X509Certificate certificate) => pin == null || _presentsPin(certificate);
 
-  /// Whether the TV presented a certificate with the pinned key.
-  bool _pinned(X509Certificate? certificate) => certificate != null && _accept(certificate);
+  /// Records the key of [certificate] as the one presented, and whether it is the pinned one.
+  bool _presentsPin(X509Certificate certificate) {
+    _presented = certificateFingerprint(certificate.der);
+    return _presented == pin;
+  }
 
   /// Whether the TV presented a key that is not the pinned one.
   bool get _mismatch => pin != null && _presented != null && _presented != pin;

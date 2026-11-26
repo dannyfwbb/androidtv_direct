@@ -71,6 +71,20 @@ void main() {
     await big;
   });
 
+  test('a second close while the first sends the rest waits for it: every chunk goes out before the close', () async {
+    final voice = await remote.startVoice();
+    await voice.add(Uint8List(chunk * 3));
+    final closes = [voice.close(), voice.close()];
+    for (var sent = 1; sent < 3; sent++) {
+      await until(() => audio().length == sent);
+      clock.advance(const Duration(milliseconds: 1280));
+    }
+    await fake.received<VoiceCloseMessage>();
+    expect(audio(), hasLength(3), reason: 'the second close did not cut the rest off');
+    clock.advance(TvVoiceSession.endConfirmation);
+    await Future.wait(closes);
+  });
+
   test('cancel ends the session without the audio left', () async {
     final voice = await remote.startVoice();
     await voice.add(Uint8List(chunk * 3));
