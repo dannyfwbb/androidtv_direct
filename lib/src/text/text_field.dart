@@ -26,7 +26,11 @@ typedef TvSelection = ({int start, int end});
 final class TvTextField {
   TvTextField._(this._session, this.giveUpAfter, this._input)
     : kind = _session.field.kind,
-      _sync = TextSync(byRange: _input._takesRanges, now: () => _session.clock.elapsed) {
+      _sync = TextSync(
+        now: () => _session.clock.elapsed,
+        wait: () => _session.roundTrip.waitFor(giveUpAfter),
+        byRange: _input._takesRanges,
+      ) {
     _copyTracker();
     _sync.reset(_session.field.text, cursor: _selection.end);
   }
@@ -50,8 +54,10 @@ final class TvTextField {
   String? _afterMove;
 
   /// How long [setText] waits at least for an awaited report; longer when the TV's answers take longer (see
-  /// [RoundTrip]). Then an emptying of the field goes again with a placeholder, a deletion by Del keys is tried again
-  /// from the TV's text (TVs may lose keys), and otherwise the TV's text wins (the field filtered or limited it).
+  /// [RoundTrip]). Then an emptying of the field goes again with a placeholder, the rest of a deletion by Del keys
+  /// whose reports stopped goes again (those keys were lost), and otherwise the TV's text wins (the field filtered or
+  /// limited it). Del keys not reported at all are waited for longer (`TextSync.keysHorizon`): they may be on their
+  /// way, and sending them again could delete twice.
   final Duration giveUpAfter;
 
   /// What the field takes: password, several lines, its action key.
@@ -160,12 +166,7 @@ final class TvTextField {
     _copyTracker();
     final report = _sync.report(_session.field.text, cursor: _selection.end);
     if (_sync.answerTime case final time?) _session.roundTrip.add(time);
-    if (_afterMove == null) {
-      _apply(report);
-      // A report that leaves the step in flight (one of several Del keys) shows it progressing: the wait starts again.
-      if (report.send == null && _sync.waiting) _restartGiveUp();
-      return;
-    }
+    if (_afterMove == null) return _apply(report);
     // The report of the cursor's move: nothing was in flight, so nothing is sent; a text changed on the TV counts.
     if (report.adopt case final text?) _changes.add(text);
     _afterCursorMoved();
@@ -183,20 +184,17 @@ final class TvTextField {
     // Whether the TV takes ranges is the TV's, not the field's: later fields start with what this one found.
     if (!_sync.byRange) _input._takesRanges = false;
     if (result.adopt != null) _changes.add(result.adopt!);
-    final step = result.send;
-    if (step != null) {
-      _sendStep(step);
-      _restartGiveUp();
+    if (result.send case final step?) _sendStep(step);
+    if (_sync.deadline case final deadline?) {
+      // Set again after every report: the sync moves the deadline when Del keys make progress.
+      return _restartTimer(deadline - _session.clock.elapsed, () => _apply(_sync.stalled()));
     }
-    if (_sync.waiting) return;
     _timer?.cancel();
     for (final waiter in _waiting) {
       waiter.complete(_sync.tv);
     }
     _waiting.clear();
   }
-
-  void _restartGiveUp() => _restartTimer(_session.roundTrip.waitFor(giveUpAfter), () => _apply(_sync.stalled()));
 
   void _sendStep(TextStep step) {
     switch (step) {

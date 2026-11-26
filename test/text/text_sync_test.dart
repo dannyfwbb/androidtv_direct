@@ -55,7 +55,7 @@ void main() {
 
   group('TextSync by range', () {
     test('one step in flight; what is wanted meanwhile goes out after the report', () {
-      final sync = TextSync()..reset('');
+      final sync = TextSync(now: _noTime, wait: _wait)..reset('');
       expect(sync.want('ab'), const TextReplace(0, 0, 'ab'));
       expect(sync.want('abc'), isNull);
       expect(sync.report('ab'), (adopt: null, send: const TextReplace(1, 2, 'bc')));
@@ -64,27 +64,27 @@ void main() {
     });
 
     test('a replacement goes as a deletion, then the rest', () {
-      final sync = TextSync()..reset('abc');
+      final sync = TextSync(now: _noTime, wait: _wait)..reset('abc');
       expect(sync.want('abXd'), const TextReplace(1, 3, 'b'));
       expect(sync.report('ab'), (adopt: null, send: const TextReplace(1, 2, 'bXd')));
       expect(sync.report('abXd'), (adopt: null, send: null));
     });
 
     test('a field at its length limit cuts the addition and keeps its text: the TV text wins', () {
-      final sync = TextSync()..reset('abc');
+      final sync = TextSync(now: _noTime, wait: _wait)..reset('abc');
       expect(sync.want('abcd'), const TextReplace(2, 3, 'cd'));
       expect(sync.stalled(), (adopt: 'abc', send: null));
     });
 
     test('a report other than the one planned is the field changing the text: the TV text wins', () {
-      final sync = TextSync()..reset('');
+      final sync = TextSync(now: _noTime, wait: _wait)..reset('');
       expect(sync.want('abcdef'), const TextReplace(0, 0, 'abcdef'));
       expect(sync.report('abc'), (adopt: 'abc', send: null));
       expect((sync.wanted, sync.waiting), ('abc', false));
     });
 
     test('a stalled edit is a field that kept its text (a limit, a filter): the TV text wins, ranges stay', () {
-      final sync = TextSync()..reset('hello');
+      final sync = TextSync(now: _noTime, wait: _wait)..reset('hello');
       expect(sync.want('hello!'), const TextReplace(4, 5, 'o!'));
       expect(sync.stalled(), (adopt: 'hello', send: null));
       expect(sync.want('hello'), isNull);
@@ -92,14 +92,14 @@ void main() {
     });
 
     test('a TV that inserts an edit with a range at the cursor gets keys, which repair the field', () {
-      final sync = TextSync()..reset('hello');
+      final sync = TextSync(now: _noTime, wait: _wait)..reset('hello');
       expect(sync.want('hel'), const TextReplace(2, 5, 'l'));
       expect(sync.report('hellol'), (adopt: null, send: const TextKeys(deletes: 3)));
       expect(sync.byRange, isFalse);
     });
 
     test('an emptying that stalls (the cursor was at the start) goes again once, with a placeholder first', () {
-      final sync = TextSync()..reset('abc');
+      final sync = TextSync(now: _noTime, wait: _wait)..reset('abc');
       expect(sync.want(''), const TextReplace(0, 3, ''));
       expect(sync.stalled(), (adopt: null, send: const TextReplace(0, 3, 'a')));
       expect(sync.report('a', cursor: 1), (adopt: null, send: const TextReplace(0, 1, '')));
@@ -107,7 +107,7 @@ void main() {
     });
 
     test('a TV that always reports the cursor at the start gets one placeholder, then the emptying', () {
-      final sync = TextSync()..reset('a', cursor: 0);
+      final sync = TextSync(now: _noTime, wait: _wait)..reset('a', cursor: 0);
       expect(sync.want(''), const TextReplace(0, 1, 'aa'));
       expect(sync.report('aa', cursor: 0), (adopt: null, send: const TextReplace(0, 2, '')));
       expect(sync.report('', cursor: 0), (adopt: null, send: null));
@@ -116,7 +116,7 @@ void main() {
 
     test('a step given up on that arrives late, while the next is in flight: the next went with a stale revision and '
         'goes again', () {
-      final sync = TextSync()..reset('');
+      final sync = TextSync(now: _noTime, wait: _wait)..reset('');
       expect(sync.want('Hello'), const TextReplace(0, 0, 'Hello'));
       expect(sync.stalled(), (adopt: '', send: null));
       expect(sync.want('Hello world'), const TextReplace(0, 0, 'Hello world'));
@@ -127,7 +127,7 @@ void main() {
     });
 
     test('a step given up on that arrives late while nothing is in flight is the TV text', () {
-      final sync = TextSync()..reset('ab');
+      final sync = TextSync(now: _noTime, wait: _wait)..reset('ab');
       expect(sync.want('abc'), const TextReplace(1, 2, 'bc'));
       expect(sync.stalled(), (adopt: 'ab', send: null));
       expect(sync.report('abc'), (adopt: 'abc', send: null));
@@ -135,7 +135,7 @@ void main() {
     });
 
     test('a report while nothing is in flight is a change made on the TV', () {
-      final sync = TextSync()..reset('a');
+      final sync = TextSync(now: _noTime, wait: _wait)..reset('a');
       expect(sync.report('ab'), (adopt: 'ab', send: null));
       expect(sync.wanted, 'ab');
     });
@@ -144,7 +144,7 @@ void main() {
   group('answer times', () {
     test('a step answered, its first Del report, and a late answer measured from its own step', () {
       var now = Duration.zero;
-      final sync = TextSync(now: () => now)..reset('');
+      final sync = TextSync(now: () => now, wait: _wait)..reset('');
       sync.want('ab');
       now = const Duration(milliseconds: 40);
       sync.report('ab');
@@ -164,7 +164,7 @@ void main() {
 
     test('Del keys: the first report answers the batch', () {
       var now = Duration.zero;
-      final sync = TextSync(byRange: false, now: () => now)..reset('abc');
+      final sync = TextSync(byRange: false, now: () => now, wait: _wait)..reset('abc');
       sync.want('');
       now = const Duration(milliseconds: 30);
       sync.report('ab');
@@ -177,14 +177,14 @@ void main() {
 
   group('TextSync by keys', () {
     test('Del keys first, then the insert after the last deletion is reported', () {
-      final sync = TextSync(byRange: false)..reset('hello');
+      final sync = TextSync(now: _noTime, wait: _wait, byRange: false)..reset('hello');
       expect(sync.want('help'), const TextKeys(deletes: 2));
       expect(sync.report('hell'), (adopt: null, send: null));
       expect(sync.report('hel'), (adopt: null, send: const TextKeys(insert: 'p')));
     });
 
     test('long deletions go out in batches', () {
-      final sync = TextSync(maxDeletes: 3, byRange: false)..reset('abcdefg');
+      final sync = TextSync(now: _noTime, wait: _wait, maxDeletes: 3, byRange: false)..reset('abcdefg');
       expect(sync.want('a'), const TextKeys(deletes: 3));
       expect(sync.report('abcd'), (adopt: null, send: const TextKeys(deletes: 3)));
       expect(sync.report('a'), (adopt: null, send: null));
@@ -192,13 +192,13 @@ void main() {
     });
 
     test('an insert the field changed is the TV text at once', () {
-      final sync = TextSync(byRange: false)..reset('');
+      final sync = TextSync(now: _noTime, wait: _wait, byRange: false)..reset('');
       expect(sync.want('abc'), const TextKeys(insert: 'abc'));
       expect(sync.report('ab'), (adopt: 'ab', send: null));
     });
 
     test('a stalled insertion gives way to the TV text', () {
-      final sync = TextSync(byRange: false)..reset('');
+      final sync = TextSync(now: _noTime, wait: _wait, byRange: false)..reset('');
       sync.want('a!');
       expect(sync.stalled(), (adopt: '', send: null));
       expect((sync.wanted, sync.waiting), ('', false));
@@ -206,7 +206,7 @@ void main() {
     });
 
     test('a deletion whose reports stop partway goes again for the rest; one never answered is not sent twice', () {
-      final sync = TextSync(byRange: false)..reset('abcd');
+      final sync = TextSync(now: _noTime, wait: _wait, byRange: false)..reset('abcd');
       expect(sync.want(''), const TextKeys(deletes: 4));
       sync.report('a');
       // The keys after the last report were lost: the rest goes again.
@@ -215,18 +215,41 @@ void main() {
       expect(sync.stalled(), (adopt: 'a', send: null));
     });
 
-    test('a slow deletion given up on is not deleted twice when its reports come late', () {
-      final sync = TextSync(byRange: false)..reset('abcdef');
+    test('Del keys not reported at all are waited for up to the horizon; reported ones from the last report', () {
+      var now = Duration.zero;
+      final sync = TextSync(now: () => now, wait: _wait, byRange: false)..reset('abcdef');
       expect(sync.want('abc'), const TextKeys(deletes: 3));
+      expect(sync.deadline, sync.keysHorizon);
+      now = const Duration(seconds: 2);
+      sync.report('abcde');
+      expect(sync.deadline, now + _wait());
+    });
+
+    test('a report that is not one more key deleted (the cursor, a change on the TV) is no progress', () {
+      var now = Duration.zero;
+      final sync = TextSync(now: () => now, wait: _wait, byRange: false)..reset('abcdef');
+      sync.want('abc');
+      now = const Duration(milliseconds: 300);
+      // The cursor moved: same text.
+      expect(sync.report('abcdef', cursor: 6), (adopt: null, send: null));
+      expect((sync.answerTime, sync.deadline), (null, sync.keysHorizon));
+      // Given up on without a key reported: the keys may still land, so they are not sent again.
       expect(sync.stalled(), (adopt: 'abcdef', send: null));
-      for (final text in ['abcde', 'abcd', 'abc']) {
-        expect(sync.report(text), (adopt: text, send: null));
+    });
+
+    test('a second want while Del keys are on their way sends nothing more', () {
+      final sync = TextSync(now: _noTime, wait: _wait, byRange: false)..reset('abcdef');
+      expect(sync.want('abc'), const TextKeys(deletes: 3));
+      expect(sync.want('abc'), isNull);
+      for (final text in ['abcde', 'abcd']) {
+        expect(sync.report(text), (adopt: null, send: null));
       }
-      expect((sync.tv, sync.waiting), ('abc', false));
+      expect(sync.report('abc'), (adopt: null, send: null));
+      expect(sync.settled, isTrue);
     });
 
     test('a deletion stops being planned again after a few rounds of lost keys', () {
-      final sync = TextSync(byRange: false)..reset('abcdefgh');
+      final sync = TextSync(now: _noTime, wait: _wait, byRange: false)..reset('abcdefgh');
       expect(sync.want(''), const TextKeys(deletes: 8));
       for (final (reported, rest) in [('abcdefg', 7), ('abcdef', 6), ('abcde', 5)]) {
         sync.report(reported);
@@ -237,3 +260,7 @@ void main() {
     });
   });
 }
+
+Duration _noTime() => Duration.zero;
+
+Duration _wait() => const Duration(milliseconds: 1500);

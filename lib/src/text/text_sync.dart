@@ -3,6 +3,7 @@
 
 import 'dart:math';
 
+import 'package:androidtv_direct/src/clock.dart';
 import 'package:characters/characters.dart';
 import 'package:meta/meta.dart';
 
@@ -128,35 +129,48 @@ const SyncOutcome _nothing = (adopt: null, send: null);
 /// flight is a change made on the TV, which the client takes.
 ///
 /// Steps are edits with a range ([replacementFor]), each answered by one report. One that comes back otherwise than
-/// planned, or not at all, means the field filtered or limited the text: the TV's text wins. A step given up on may
-/// still arrive (a network slower than the wait): if it does while the next is in flight, that one went with a stale
-/// revision, which the TV drops, and it is planned again. Emptying the field is
-/// the one step the cursor's place can spoil (an empty edit at the cursor is ignored): when the TV reports the cursor
-/// at the start, or the emptying stalls, it goes again with a placeholder first. A TV that inserts an edit with a
-/// range at the cursor does not take ranges, and gets keys from then on ([byRange] false): Del keys and inserts at
-/// the cursor, which assume the cursor at the end. Del keys go out at most [maxDeletes] per step, since a TV flooded
-/// with a few hundred keys at once was seen to lose some. Keys carry no revision, so a batch is never sent twice: when
-/// its reports stop partway, the keys after the last one were lost and the rest is planned again from the TV's text;
-/// when none came at all, the batch may still arrive, and the TV's text wins.
+/// planned, or not at all in time (the constructor's `wait`), means the field filtered or limited the text: the TV's text wins. A step
+/// given up on may still arrive (a network slower than the wait): if it does while the next is in flight, that one
+/// went with a stale revision, which the TV drops, and it is planned again. Emptying the field is the one step the
+/// cursor's place can spoil (an empty edit at the cursor is ignored): when the TV reports the cursor at the start, or
+/// the emptying stalls, it goes again with a placeholder first.
 ///
-/// [answerTime] tells how long the TV took to answer a step, for the session's round-trip estimate.
+/// A TV that inserts an edit with a range at the cursor does not take ranges, and gets keys from then on ([byRange]
+/// false): Del keys and inserts at the cursor, which assume the cursor at the end. Del keys go out at most
+/// [maxDeletes] per step, since a TV flooded with a few hundred keys at once was seen to lose some, and are reported
+/// one at a time. Keys carry no revision, so a batch is never sent twice while it may still land: a deletion always
+/// changes the length, so the TV always reports it, and a batch with no report yet is waited for up to
+/// [keysHorizon]; one whose reports stopped partway lost the keys after the last report, and the rest is planned
+/// again from the TV's text.
+///
+/// [deadline] tells when [stalled] is due; [answerTime] how long the TV took to answer a step, for the session's
+/// round-trip estimate.
 final class TextSync {
-  /// Creates the sync; [maxDeletes] caps the Del keys of one step, [byRange] starts with edits with a range (the
-  /// default) or with keys, and [now] tells the time for [answerTime].
-  TextSync({this.maxDeletes = 30, bool byRange = true, Duration Function()? now})
-    : _byRange = byRange,
-      _now = now ?? _noClock;
-
-  static Duration _noClock() => Duration.zero;
+  /// Creates the sync. [now] tells the time; [wait] how long to wait for an answer (the session's round trip, with
+  /// its floor); [maxDeletes] caps the Del keys of one step, and [byRange] starts with edits with a range (the default)
+  /// or with keys.
+  TextSync({
+    required Duration Function() now,
+    required Duration Function() wait,
+    this.maxDeletes = 30,
+    this.keysHorizon = const Duration(seconds: 10),
+    bool byRange = true,
+  }) : _now = now,
+       _wait = wait,
+       _byRange = byRange;
 
   /// The most Del keys one step sends.
   final int maxDeletes;
+
+  /// How long a batch of Del keys with no report yet is waited for before the TV's text wins: it may be on its way.
+  final Duration keysHorizon;
 
   /// How often a deletion by Del keys whose reports stopped is planned again from the TV's text before the TV's text
   /// wins.
   static const int maxReplans = 3;
 
   final Duration Function() _now;
+  final Duration Function() _wait;
 
   /// Whether steps are edits with a range. Turned off for good once the TV inserted one at the cursor.
   bool get byRange => _byRange;
@@ -165,28 +179,19 @@ final class TextSync {
   String _tv = '';
   int _cursor = 0;
   String _wanted = '';
-  TextStep? _inFlight;
-  String? _awaited;
+  _Flight? _flight;
 
-  /// What an edit in flight would make of the field if the TV inserted it at the cursor instead.
-  String? _ifInserted;
+  /// The last edit given up on: it may still arrive.
+  ({String awaited, Duration sentAt})? _late;
 
   /// Whether the TV last reported the cursor at the start, or an emptying of the field stalled.
   bool _cursorAtStart = false;
 
   /// Whether the last step was a placeholder: the next emptying goes without one, whatever the cursor.
   bool _placeholder = false;
-
-  /// What the last step given up on would have made of the field, and when it went out: it may still arrive.
-  String? _abandoned;
-  Duration? _abandonedSentAt;
-
-  /// When the step in flight went out, until a report answered it.
-  Duration? _sentAt;
-
-  /// The reports of the Del keys in flight so far.
-  int _keyReports = 0;
   bool _emptyingRetried = false;
+
+  /// How often the deletion in flight was planned again after its keys were lost.
   int _replans = 0;
 
   /// How long the TV took to answer a step, if the last report answered one (late answers included); `null`
@@ -202,86 +207,100 @@ final class TextSync {
   String get tv => _tv;
 
   /// Whether a step is in flight.
-  bool get waiting => _awaited != null;
+  bool get waiting => _flight != null;
+
+  /// When [stalled] is due, while a step is in flight: the wait counts from the step, or for Del keys from the last
+  /// one reported.
+  Duration? get deadline {
+    final flight = _flight;
+    if (flight == null) return null;
+    if (flight.deletes > 0 && flight.keyReports == 0) return flight.sentAt + longer(_wait(), keysHorizon);
+    return flight.progressAt + _wait();
+  }
 
   /// Whether the TV's field holds the wanted text and nothing is in flight.
   @visibleForTesting
-  bool get settled => _awaited == null && _tv == _wanted;
+  bool get settled => _flight == null && _tv == _wanted;
 
   /// A field got the focus with [text] and the cursor at [cursor] (default: the end); nothing is in flight.
   void reset(String text, {int? cursor}) {
     _take(text, cursor);
     _wanted = text;
-    _settle();
+    _flight = null;
+    _replans = 0;
   }
 
   /// The client wants [text]. Returns the step to send now, or `null` to wait for the TV.
   TextStep? want(String text) {
     _wanted = text;
     _emptyingRetried = false;
-    return _awaited == null ? _next() : null;
+    return _flight == null ? _next() : null;
   }
 
   /// The TV reported its field as [text], with the cursor at [cursor] (default: the end).
   SyncOutcome report(String text, {int? cursor}) {
     _take(text, cursor);
     _answerTime = null;
-    // After the next report, a step given up on can no longer be told from a change made on the TV.
-    final arrivedLate = text == _abandoned;
-    if (arrivedLate) _answerTime = _since(_abandonedSentAt);
-    _abandoned = null;
-    _abandonedSentAt = null;
-    final awaited = _awaited;
-    if (awaited == null) return _changedOnTv();
-    if (text == awaited) {
-      _answered();
-      _settle();
+    // After the next report, an edit given up on can no longer be told from a change made on the TV.
+    final late = _late;
+    _late = null;
+    final arrivedLate = late != null && text == late.awaited;
+    if (arrivedLate) _answerTime = _now() - late.sentAt;
+    final flight = _flight;
+    if (flight == null) return _changedOnTv();
+    if (text == flight.awaited) {
+      _answered(flight);
+      _land();
       return (adopt: null, send: _next());
     }
-    // Del keys are reported one at a time: the first answers the batch; wait for the last one.
-    if (_inFlight case TextKeys(deletes: > 0)) {
-      if (_keyReports++ == 0) _answered();
-      return _nothing;
-    }
-    // The step given up on arrived late. The edit in flight carried the field's revision from before it, and the TV
-    // drops such an edit: plan again from the TV's text. (Keys carry no revision, so this is about edits only.)
+    if (flight.deletes > 0) return _keyReport(flight, text);
+    // The edit given up on arrived late. The edit in flight carried the field's revision from before it, and the TV
+    // drops such an edit: plan again from the TV's text.
     if (arrivedLate) {
-      _settle();
+      _land();
       return (adopt: null, send: _next());
     }
     // One edit, one report. The TV inserted it at the cursor: it does not take ranges, and keys repair the field.
-    final ignoredRange = text == _ifInserted;
-    if (ignoredRange) _answered();
-    _settle();
-    if (ignoredRange) {
+    if (text == flight.ifInserted) {
+      _answered(flight);
+      _land();
       _byRange = false;
       return (adopt: null, send: _next());
     }
     // The field took something else: it filters or limits its text.
+    _land();
     return _changedOnTv();
   }
 
-  /// The awaited report did not come in time (for Del keys: no further report). An emptying of the field goes again
-  /// once, with a placeholder first (the cursor was at the start); a deletion by Del keys whose reports stopped partway
-  /// is planned again from the TV's text (the keys after the last report were lost), up to [maxReplans] times;
-  /// otherwise the TV's text wins (the field filtered or limited the text, keeping its length, or the step is late).
-  /// Returns the text the client must take, if any, and the step to send, if any.
+  /// A report while Del keys are in flight: one key more deleted is progress; anything else (the cursor reported,
+  /// a change made on the TV) is not, and the keys may still land.
+  SyncOutcome _keyReport(_Flight flight, String text) {
+    if (!flight.isProgress(text)) return _nothing;
+    if (flight.keyReports++ == 0) _answered(flight);
+    flight.progressAt = _now();
+    return _nothing;
+  }
+
+  /// The wait for the step in flight ran out ([deadline]). An emptying of the field goes again once, with a
+  /// placeholder first (the cursor was at the start); Del keys whose reports stopped partway lost the rest, which is
+  /// planned again from the TV's text, up to [maxReplans] times; otherwise the TV's text wins (the field filtered or
+  /// limited the text, keeping its length, or the step is too late to wait for). Returns the text the client must
+  /// take, if any, and the step to send, if any.
   SyncOutcome stalled() {
-    final step = _inFlight;
-    final replans = _replans;
-    final keyReports = _keyReports;
-    _abandoned = _awaited;
-    _abandonedSentAt = _sentAt;
-    _settle();
-    if (step case TextReplace(start: 0, text: '') when !_emptyingRetried) {
+    final flight = _flight;
+    if (flight == null) return _nothing;
+    _flight = null;
+    if (flight.step case TextReplace(start: 0, text: '') when !_emptyingRetried) {
       _emptyingRetried = true;
       _cursorAtStart = true;
       return (adopt: null, send: _next());
     }
-    if (step case TextKeys(deletes: > 0) when keyReports > 0 && replans < maxReplans) {
-      _replans = replans + 1;
+    if (flight.deletes > 0 && flight.keyReports > 0 && _replans < maxReplans) {
+      _replans++;
       return (adopt: null, send: _next());
     }
+    if (flight.deletes == 0) _late = (awaited: flight.awaited, sentAt: flight.sentAt);
+    _replans = 0;
     return _changedOnTv();
   }
 
@@ -291,22 +310,18 @@ final class TextSync {
     _cursorAtStart = _cursor == 0 && text.isNotEmpty;
   }
 
-  void _settle() {
-    _inFlight = null;
-    _awaited = null;
-    _ifInserted = null;
-    _sentAt = null;
-    _keyReports = 0;
+  /// The step in flight came back as planned or otherwise: nothing is in flight now.
+  void _land() {
+    _flight = null;
     _replans = 0;
   }
 
-  /// The report answers the step in flight: its time is the answer's.
-  void _answered() {
-    _answerTime = _since(_sentAt);
-    _sentAt = null;
+  /// The report answers [flight], the first time: its time is the answer's.
+  void _answered(_Flight flight) {
+    if (flight.answered) return;
+    flight.answered = true;
+    _answerTime = _now() - flight.sentAt;
   }
-
-  Duration? _since(Duration? at) => at == null ? null : _now() - at;
 
   /// The TV's text is the client's now, if it was not already.
   SyncOutcome _changedOnTv() {
@@ -317,13 +332,21 @@ final class TextSync {
 
   TextStep? _next() {
     final step = _byRange ? _rangeStep() : _keysStep();
-    _inFlight = step;
-    if (step != null) _sentAt = _now();
-    _awaited = switch (step) {
-      null => null,
-      TextReplace(:final start, :final text) => _tv.substring(0, start) + text,
-      TextKeys(:final deletes, :final insert) => _tv.characters.skipLast(deletes).string + insert,
-    };
+    if (step == null) return null;
+    _flight = _Flight(
+      step,
+      from: _tv,
+      awaited: switch (step) {
+        TextReplace(:final start, :final text) => _tv.substring(0, start) + text,
+        TextKeys(:final deletes, :final insert) => _tv.characters.skipLast(deletes).string + insert,
+      },
+      ifInserted: switch (step) {
+        TextReplace(:final start, :final end, :final text) when start < end =>
+          _tv.substring(0, _cursor) + text + _tv.substring(_cursor),
+        _ => null,
+      },
+      sentAt: _now(),
+    );
     return step;
   }
 
@@ -331,8 +354,6 @@ final class TextSync {
     final step = replacementFor(_tv, _wanted, cursorAtStart: _cursorAtStart && !_placeholder);
     // A placeholder is the only step at the start whose text is not the wanted one.
     _placeholder = step != null && step.start == 0 && step.text.isNotEmpty && step.text != _wanted;
-    final ranged = step != null && step.start < step.end;
-    _ifInserted = ranged ? _tv.substring(0, _cursor) + step.text + _tv.substring(_cursor) : null;
     return step;
   }
 
@@ -340,5 +361,46 @@ final class TextSync {
     final step = textDifference(_tv, _wanted);
     if (step.isEmpty) return null;
     return step.deletes > 0 ? TextKeys(deletes: min(step.deletes, maxDeletes)) : step;
+  }
+}
+
+/// A step sent to the TV, until a report answers it or the wait for one runs out.
+final class _Flight {
+  _Flight(this.step, {required this.from, required this.awaited, required this.ifInserted, required this.sentAt})
+    : progressAt = sentAt;
+
+  final TextStep step;
+
+  /// The TV's text when the step went out.
+  final String from;
+
+  /// What the step makes of the field.
+  final String awaited;
+
+  /// What an edit with a range would make of the field if the TV inserted it at the cursor instead.
+  final String? ifInserted;
+
+  final Duration sentAt;
+
+  /// When it last showed progress: sent, or one of its Del keys reported.
+  Duration progressAt;
+
+  /// The reports of its Del keys so far.
+  int keyReports = 0;
+
+  /// Whether a report answered it already (its time was measured).
+  bool answered = false;
+
+  int get deletes => switch (step) {
+    TextKeys(:final deletes) => deletes,
+    TextReplace() => 0,
+  };
+
+  /// Whether [text] is the field with some of its Del keys applied: [from] with 1 to [deletes] − 1 characters (as
+  /// the user sees them) removed from the end.
+  bool isProgress(String text) {
+    final kept = text.characters.length;
+    final removed = from.characters.length - kept;
+    return removed > 0 && removed < deletes && from.characters.take(kept).string == text;
   }
 }

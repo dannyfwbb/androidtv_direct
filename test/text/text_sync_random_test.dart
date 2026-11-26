@@ -121,7 +121,7 @@ int _run(
     maxLength: maxLength,
     honoursRanges: honoursRanges,
   );
-  final sync = TextSync(maxDeletes: 1 + random.nextInt(5))..reset('');
+  final sync = TextSync(now: _noTime, wait: _wait, maxDeletes: 1 + random.nextInt(5))..reset('');
   var wants = 5 + random.nextInt(20);
   var steps = 0;
 
@@ -177,3 +177,7 @@ void main() {
     }
   });
 }
+
+Duration _noTime() => Duration.zero;
+
+Duration _wait() => const Duration(milliseconds: 1500);

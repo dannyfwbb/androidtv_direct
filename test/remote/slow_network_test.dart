@@ -90,6 +90,31 @@ void main() {
     expect(changes, isEmpty, reason: 'the report of the cursor is not a change made on the TV');
   }, timeout: const Timeout(Duration(minutes: 1)));
 
+  test('keys: a deletion slower than textGiveUp is waited for, also when setText is called again meanwhile', () async {
+    final fake = FakeSession();
+    final tv = await startFakeTv(onRemote: fake.serve);
+    final remote = await TvRemote.connect(
+      InternetAddress.loopbackIPv4,
+      port: tv.remotePort,
+      identity: testClient(),
+      fingerprint: null,
+      features: {...TvFeature.defaults, TvFeature.ime},
+      textGiveUp: const Duration(milliseconds: 100),
+    );
+    addTearDown(remote.close);
+    await fake.focus(FakeField(text: 'x', honoursRanges: false));
+    final first = (await remote.textFieldChanges.firstWhere((field) => field != null))!;
+    await first.setText('');
+    final tvField = FakeField(text: 'abcdef', honoursRanges: false);
+    await fake.focus(tvField);
+    final field = (await remote.textFieldChanges.firstWhere((field) => field != null && field.text == 'abcdef'))!;
+    (await fake.connection.future).latency = const Duration(milliseconds: 600);
+    // As a text box bound to setText does, on every keystroke.
+    final results = await Future.wait([field.setText('abc'), field.setText('abc')]);
+    expect(results, ['abc', 'abc']);
+    expect(tvField.text, 'abc');
+  }, timeout: const Timeout(Duration(minutes: 1)));
+
   test('setVolume reaches its level when each report takes longer than stepTimeout', () async {
     final fake = FakeSession()..latency = const Duration(milliseconds: 250);
     final tv = await startFakeTv(onRemote: fake.serve);
