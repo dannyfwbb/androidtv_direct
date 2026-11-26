@@ -52,7 +52,7 @@ final class TvClientIdentity {
     String? commonName,
     Duration validity = const Duration(days: 3650),
   }) async {
-    if (commonName != null && commonName.isEmpty) throw ArgumentError.value(commonName, 'commonName', 'is empty');
+    if (commonName != null) checkNotBlank(commonName, 'commonName');
     checkPositive(validity, 'validity');
     final key = await Isolate.run(RsaPrivateKey.generate);
     final certificate = buildCertificate(

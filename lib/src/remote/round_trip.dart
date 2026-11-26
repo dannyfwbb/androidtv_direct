@@ -1,6 +1,8 @@
 // Copyright 2026 The androidtv_direct authors
 // SPDX-License-Identifier: Apache-2.0
 
+import 'package:androidtv_direct/src/clock.dart';
+
 /// The time from a message to the TV's answer, estimated as TCP estimates its own (RFC 6298, section 2): a smoothed
 /// time and its variation, from every measured answer.
 ///
@@ -8,21 +10,27 @@
 /// do not back off after running out, as TCP does: silence is a normal answer here (a field that drops an edit sends
 /// no report), and only an answer that came late, measured from what it answered, makes waits longer.
 final class RoundTrip {
+  /// The longest [timeout], and the longest a measured answer counts as (RFC 6298 2.5 allows a ceiling). One answer
+  /// measured across a pause (an app in the background, a debugger) would otherwise make every wait minutes long, and
+  /// a network whose answers take longer is of no use for a remote anyway.
+  static const Duration ceiling = Duration(seconds: 10);
+
   Duration? _smoothed;
   Duration _variation = Duration.zero;
 
   /// The smoothed time, or `null` before any measurement.
   Duration? get smoothed => _smoothed;
 
-  /// How long an answer may take before it counts as not coming: the smoothed time plus four times its variation;
-  /// zero before any measurement.
-  Duration get timeout => _smoothed == null ? Duration.zero : _smoothed! + _variation * 4;
+  /// How long an answer may take before it counts as not coming: the smoothed time plus four times its variation, at
+  /// most [ceiling]; zero before any measurement.
+  Duration get timeout => _smoothed == null ? Duration.zero : shorter(_smoothed! + _variation * 4, ceiling);
 
-  /// How long to wait for an answer, at least [floor].
-  Duration waitFor(Duration floor) => timeout > floor ? timeout : floor;
+  /// How long to wait for an answer: [timeout], and at least [floor].
+  Duration waitFor(Duration floor) => longer(timeout, floor);
 
-  /// Takes the time one answer took.
-  void add(Duration sample) {
+  /// Takes the time one answer took; at most [ceiling] of it counts.
+  void add(Duration answer) {
+    final sample = shorter(answer, ceiling);
     final smoothed = _smoothed;
     if (smoothed == null) {
       _smoothed = sample;

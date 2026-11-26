@@ -48,8 +48,8 @@ final class TvRemote {
   /// [features] is what the session asks for; the TV grants what it offers of it ([TvRemote.features]). Power reports
   /// are always asked for: the session is ready when the TV reports its power state. [textGiveUp] is the least a
   /// [TvTextField.setText] waits for the TV's report before taking the TV's text as it is; on a network slower than
-  /// that the session waits as long as the TV's answers have been taking (it measures them from its start). [client] is what the TV is
-  /// told about this app and device; the TV only logs it.
+  /// that the session waits as long as the TV's answers have been taking (it measures them from its start, up to
+  /// `RoundTrip.ceiling`). [client] is what the TV is told about this app and device; the TV only logs it.
   ///
   /// Throws [TvUnreachableException], [TvNoServiceException], [TvWrongTvException], [TvNotPairedException] (the TV does
   /// not know [identity]), [TvTimeoutException] (no TLS within [connectTimeout], or no start within [startTimeout]),
@@ -147,9 +147,9 @@ final class TvRemote {
   ///
   /// Throws [TvNotSupportedException] without [TvFeature.key] or [TvFeature.volume], or before the TV reported its
   /// volume; [RangeError] for a level out of range; [TvTimeoutException] when a report does not come within
-  /// [stepTimeout] (or longer, as long as the TV's answers have been taking) or the level is not reached within [timeout]; [TvCancelledException] when a newer [setVolume]
-  /// takes over; [ArgumentError] for a timeout that is not longer than zero; and what ended the session if it ends
-  /// meanwhile.
+  /// [stepTimeout] (longer when the TV's answers have been taking longer, but never past [timeout]) or the level is not
+  /// reached within [timeout]; [TvCancelledException] when a newer [setVolume] takes over; [ArgumentError] for a
+  /// timeout that is not longer than zero; and what ended the session if it ends meanwhile.
   Future<void> setVolume(
     int level, {
     Duration stepTimeout = const Duration(seconds: 2),
@@ -160,9 +160,9 @@ final class TvRemote {
     return _volume.set(level, stepTimeout: stepTimeout, timeout: timeout);
   }
 
-  /// Opens a voice session: presses Search and waits for the TV's voice search to open it: at least [timeout], longer
-  /// as long as the TV's answers have been taking. Feed it the
-  /// app's microphone audio (16-bit PCM, mono, 8 kHz) and [TvVoiceSession.close] it when the user stops talking.
+  /// Opens a voice session: presses Search and waits for the TV's voice search to open it, at least [timeout] and as
+  /// long as the TV's answers have been taking. Feed it the app's microphone audio (16-bit PCM, mono, 8 kHz) and
+  /// [TvVoiceSession.close] it when the user stops talking.
   ///
   /// [pace] sends the audio in real time, as a microphone delivers it; without it, chunks go out as fast as they are
   /// added. Throws [TvNotSupportedException] without [TvFeature.voice] and [TvFeature.key] (voice is not in

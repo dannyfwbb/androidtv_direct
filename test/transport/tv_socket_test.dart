@@ -112,6 +112,25 @@ void main() {
     clock.advance(const Duration(seconds: 5));
     await expectLater(outcome, throwsA(isA<TvTimeoutException>()));
     await server.closed.single.timeout(const Duration(seconds: 5));
+    expect(clock.pendingTimers, 0);
+  });
+
+  test('a cancelled attempt leaves no timer behind, though its handshake never completes', () async {
+    final server = await holdingServer();
+    final clock = FakeClock();
+    final cancel = Completer<void>();
+    final outcome = TvSocket.connect(
+      InternetAddress.loopbackIPv4,
+      server.port,
+      context: client.securityContext(),
+      timeout: const Duration(seconds: 5),
+      clock: clock,
+      cancelOn: cancel.future,
+    );
+    await until(() => server.closed.isNotEmpty && clock.pendingTimers > 0);
+    cancel.complete();
+    await expectLater(outcome, throwsA(isA<TvCancelledException>()));
+    expect(clock.pendingTimers, 0);
   });
 
   group('receive', () {

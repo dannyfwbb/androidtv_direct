@@ -36,6 +36,9 @@ abstract final class TvProbe {
     DateTime Function() now = DateTime.now,
   }) async {
     checkPositive(timeout, 'timeout');
+    // Before the throwaway identity, which may take a moment to make.
+    checkHost(host);
+    checkPort(port);
     final client = identity ?? await _sharedIdentity(now);
     final socket = await TvSocket.connect(
       host,

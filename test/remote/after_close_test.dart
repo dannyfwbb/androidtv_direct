@@ -58,6 +58,7 @@ void main() {
       expect(() => remote.sendRaw(99, [1]), throwsA(reason));
       await expectLater(remote.setVolume(1), throwsA(reason));
       await expectLater(remote.startVoice(), throwsA(reason));
+      expect(hold.isReleased, isTrue, reason: 'the TV stops repeating a held key when the session ends');
       hold.release();
 
       expect(remote.textField, isNull);

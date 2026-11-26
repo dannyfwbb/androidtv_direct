@@ -47,6 +47,24 @@ void main() {
     expect(roundTrip.timeout.inMilliseconds, inInclusiveRange(100, 105));
   });
 
+  test('one answer measured across a pause, or a slow first one, cannot make the waits longer than the ceiling', () {
+    final roundTrip = RoundTrip();
+    for (var i = 0; i < 20; i++) {
+      roundTrip.add(ms * 50);
+    }
+    roundTrip.add(const Duration(minutes: 5));
+    expect(roundTrip.timeout, lessThanOrEqualTo(RoundTrip.ceiling));
+    for (var i = 0; i < 20; i++) {
+      roundTrip.add(ms * 50);
+    }
+    expect(roundTrip.timeout, lessThan(const Duration(seconds: 1)), reason: 'it recovers');
+    expect((RoundTrip()..add(const Duration(seconds: 9))).timeout, RoundTrip.ceiling);
+    expect(
+      (RoundTrip()..add(const Duration(seconds: 9))).waitFor(const Duration(seconds: 30)),
+      const Duration(seconds: 30),
+    );
+  });
+
   test('a session knows the round trip once it started', () async {
     final fake = FakeSession()..latency = ms * 120;
     final tv = await startFakeTv(onRemote: fake.serve);

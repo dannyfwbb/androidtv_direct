@@ -252,18 +252,21 @@ final class _Attempt {
     }
   }
 
-  /// The TCP connection; adds what must be released to [acquired]. The host lookup happens before
-  /// `startConnect` returns its task, so it is a stage of its own.
+  /// The TCP connection within [timeout], the host lookup included; adds what must be released to [acquired]. The
+  /// lookup happens before `startConnect` returns its task, so it is a stage of its own, sharing the deadline.
   Future<RawSocket> _connect(Object host, int port, List<void Function()> acquired) async {
+    final deadline = clock.elapsed + timeout;
     try {
       final task = await _stage(
         RawSocket.startConnect(host, port),
+        within: timeout,
         discard: _discardTask,
         onTimeout: () => TvUnreachableException('$target could not be resolved within $timeout'),
       );
       acquired.add(task.cancel);
       final plain = await _stage(
         task.socket,
+        within: deadline - clock.elapsed,
         discard: (socket) => socket.close().ignore(),
         onTimeout: () => TvUnreachableException('$target did not answer within $timeout'),
       );
@@ -280,6 +283,7 @@ final class _Attempt {
     try {
       return await _stage(
         RawSecureSocket.secure(plain, context: context, onBadCertificate: _accept),
+        within: timeout,
         discard: (tls) => tls.close().ignore(),
         onTimeout: () => TvTimeoutException('$target accepted the connection but did not finish TLS within $timeout'),
       );
@@ -290,10 +294,11 @@ final class _Attempt {
     }
   }
 
-  /// [work] within [timeout], unless [cancel] comes first. What [work] produces after the stage was given up on goes
+  /// [work] [within] its time, unless [cancel] comes first. What [work] produces after the stage was given up on goes
   /// to [discard], so nothing it opens is left behind.
   Future<T> _stage<T>(
     Future<T> work, {
+    required Duration within,
     required void Function(T late) discard,
     required TvRemoteException Function() onTimeout,
   }) {
@@ -302,16 +307,16 @@ final class _Attempt {
       if (!result.isCompleted) result.completeError(error);
     }
 
-    final timer = clock.timer(timeout, () => giveUp(onTimeout()));
+    final timer = clock.timer(within, () => giveUp(onTimeout()));
     _cancel.future.then((_) => giveUp(_cancelled)).ignore();
     work
         .then(
           (value) => result.isCompleted ? discard(value) : result.complete(value),
           onError: (Object e, StackTrace s) => result.isCompleted ? null : result.completeError(e, s),
         )
-        .whenComplete(timer.cancel)
         .ignore();
-    return result.future;
+    // However the stage ends; the work given up on may never complete (a handshake whose socket was closed).
+    return result.future.whenComplete(timer.cancel);
   }
 
   /// Stops a connection [task] whose lookup finished too late, and closes the socket it may still open.

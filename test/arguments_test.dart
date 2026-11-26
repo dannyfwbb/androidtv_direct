@@ -39,7 +39,7 @@ void main() {
       textGiveUp: textGiveUp,
     );
 
-    for (final host in <Object>['', '  ', 42, Uri.parse('http://tv')]) {
+    for (final host in <Object>['', '  ', ' 10.0.0.2', 'tv.local ', 42, Uri.parse('http://tv')]) {
       await expectLater(connect(host), refuses('host'), reason: '$host');
     }
     for (final port in [0, -1, 65536]) {
@@ -75,6 +75,10 @@ void main() {
         throwsA(isA<TvRemoteException>().having((e) => e.message, 'message', contains(shown))),
       );
     }
+  });
+
+  test('an identity needs a name with more than spaces', () async {
+    await expectLater(TvClientIdentity.generate(now: DateTime.now(), commonName: '  '), refuses('commonName'));
   });
 
   test('pairing, probe and scan', () async {

@@ -87,8 +87,14 @@ final class KeyHolds extends SessionPart {
     }
   }
 
+  /// The TV stops repeating held keys when the session ends: they count as released.
   @override
-  void onEnd(TvRemoteException reason) => _held.clear();
+  void onEnd(TvRemoteException reason) {
+    for (final hold in _held) {
+      hold._released = true;
+    }
+    _held.clear();
+  }
 
   /// Sends [hold]'s key up, if the session still holds it.
   void _release(TvKeyHold hold) {

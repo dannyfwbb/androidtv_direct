@@ -78,8 +78,8 @@ final class RemoteSession {
   /// The focused text field, as the TV's reports describe it.
   final FieldTracker field = FieldTracker();
 
-  /// The time the TV takes to answer, measured from the start of the session on; waits for answers that may not come
-  /// use its timeout as their floor.
+  /// The time the TV takes to answer, measured from the start of the session on. A wait for an answer that may not
+  /// come lasts `roundTrip.waitFor(floor)`: as long as answers have been taking, and at least the caller's floor.
   final RoundTrip roundTrip = RoundTrip();
 
   /// The TV, from its setup.

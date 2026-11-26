@@ -51,7 +51,7 @@ final class TvPairing {
     TvTracer? tracer,
     Future<void>? cancelOn,
   }) async {
-    if (clientName.trim().isEmpty) throw ArgumentError.value(clientName, 'clientName', 'is empty');
+    checkNotBlank(clientName, 'clientName');
     checkPositive(timeout, 'timeout');
     final socket = await TvSocket.connect(
       host,

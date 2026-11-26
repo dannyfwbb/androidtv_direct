@@ -12,12 +12,18 @@ Duration checkPositive(Duration value, String name) {
   return value;
 }
 
-/// [host]: a host name or an address as text, or an [InternetAddress].
+/// [host]: a host name or an address as text (without spaces around it), or an [InternetAddress].
 Object checkHost(Object host) => switch (host) {
   InternetAddress() => host,
-  String() when host.trim().isNotEmpty => host,
+  String() when host.isNotEmpty && host.trim() == host => host,
   _ => throw ArgumentError.value(host, 'host', 'must be a host name, an address as text, or an InternetAddress'),
 };
+
+/// [text], which must hold more than spaces.
+String checkNotBlank(String text, String name) {
+  if (text.trim().isEmpty) throw ArgumentError.value(text, name, 'is empty');
+  return text;
+}
 
 /// [port], from 1 to 65535.
 int checkPort(int port) => RangeError.checkValueInInterval(port, 1, 65535, 'port');

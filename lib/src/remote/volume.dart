@@ -20,7 +20,7 @@ final class VolumeControl {
 
   /// Brings the volume to [level]. The emulator ignored a level sent directly, so keys are the way. Mute is left as
   /// it is. [stepTimeout] is the least wait for each report (longer when the TV's answers take longer, see
-  /// [RemoteSession.roundTrip]) and [timeout] limits the whole change.
+  /// [RemoteSession.roundTrip]), within what is left of [timeout], which limits the whole change.
   Future<void> set(int level, {required Duration stepTimeout, required Duration timeout}) async {
     _session
       ..require(TvFeature.key)
