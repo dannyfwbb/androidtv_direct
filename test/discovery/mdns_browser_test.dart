@@ -2,176 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:androidtv_direct/androidtv_direct.dart';
 import 'package:androidtv_direct/src/discovery/dns_message.dart';
-import 'package:androidtv_direct/src/discovery/mdns_transport.dart';
 import 'package:test/test.dart';
 
 import '../support/fake_clock.dart';
-
-/// A test-side writer for mDNS answers, independent of the library's code: plain labels, no compression.
-final class Answer {
-  final BytesBuilder _records = BytesBuilder();
-  int _count = 0;
-
-  static List<int> _name(String name) => [
-    for (final label in name.split('.')) ...[label.length, ...utf8.encode(label)],
-    0,
-  ];
-
-  void _add(String name, int type, int ttl, List<int> data, {bool flush = true}) {
-    _records
-      ..add(_name(name))
-      ..add([type >> 8, type & 255, flush ? 0x80 : 0, 1])
-      ..add([ttl >> 24 & 255, ttl >> 16 & 255, ttl >> 8 & 255, ttl & 255])
-      ..add([data.length >> 8, data.length & 255])
-      ..add(data);
-    _count++;
-  }
-
-  void ptr(String type, String instance, {int ttl = 4500}) => _add(type, 12, ttl, _name(instance), flush: false);
-
-  void srv(String instance, String host, int port, {int ttl = 120}) =>
-      _add(instance, 33, ttl, [0, 0, 0, 0, port >> 8, port & 255, ..._name(host)]);
-
-  void txt(String instance, List<String> strings, {int ttl = 4500}) => _add(instance, 16, ttl, [
-    for (final s in strings) ...[s.length, ...utf8.encode(s)],
-  ]);
-
-  void a(String host, String address, {int ttl = 120}) => _add(host, 1, ttl, InternetAddress(address).rawAddress);
-
-  void aaaa(String host, String address, {int ttl = 120}) => _add(host, 28, ttl, InternetAddress(address).rawAddress);
-
-  Uint8List bytes() =>
-      Uint8List.fromList([0, 0, 0x84, 0, 0, 0, _count >> 8, _count & 255, 0, 0, 0, 0, ..._records.toBytes()]);
-}
-
-final class FakeTransport implements MdnsTransport {
-  FakeTransport({this.hearsMulticast = true, this.clock, this.startDelay});
-
-  @override
-  final bool hearsMulticast;
-
-  /// Advanced past the browser's 100 ms report delay after each delivery.
-  final FakeClock? clock;
-
-  /// Makes [start] slow, to cancel during it.
-  final Completer<void>? startDelay;
-
-  void Function(Uint8List, InternetAddress)? _onPacket;
-  final List<DnsMessage> sent = [];
-  bool closed = false;
-  int closes = 0;
-
-  @override
-  Future<void> start(
-    void Function(Uint8List packet, InternetAddress from) onPacket,
-    void Function(Object error) onError,
-  ) async {
-    _onPacket = onPacket;
-    await startDelay?.future;
-  }
-
-  @override
-  Future<void> refreshInterfaces() async {}
-
-  @override
-  void send(Uint8List packet) => sent.add(DnsMessage.decode(packet));
-
-  @override
-  Future<void> close() async {
-    closed = true;
-    closes++;
-  }
-
-  void deliver(Uint8List packet, [String from = '192.168.0.20']) {
-    _onPacket!(packet, InternetAddress(from));
-    clock?.advance(const Duration(milliseconds: 100));
-  }
-}
-
-const v2type = '_androidtvremote2._tcp.local';
-const instance = 'Living room TV.$v2type';
-
-Answer fullTv({int port = 37123, String address = '192.168.0.20'}) => Answer()
-  ..ptr(v2type, instance)
-  ..srv(instance, 'Android.local', port)
-  ..txt(instance, ['bt=AA:BB:CC:DD:EE:FF'])
-  ..a('Android.local', address);
+import '../support/fake_mdns.dart';
 
 void main() {
-  group('addresses from the network', () {
-    test('an IPv4-mapped sender is the IPv4 one', () {
-      expect(IoMdnsTransport.unmapped(InternetAddress('::ffff:192.0.2.1')).address, '192.0.2.1');
-      expect(IoMdnsTransport.unmapped(InternetAddress('192.0.2.1')).address, '192.0.2.1');
-      expect(IoMdnsTransport.unmapped(InternetAddress('2001:db8::1')).address, '2001:db8::1');
-    });
-
-    test('a link-local address takes the zone of its sender', () async {
-      final clock = FakeClock();
-      final transport = FakeTransport(clock: clock);
-      final events = <TvServiceEvent>[];
-      final sub = TvMdnsBrowser(clock: clock, transport: transport).browse([v2type]).listen(events.add);
-      await pumpEventQueue();
-      final answer = Answer()
-        ..ptr(v2type, instance)
-        ..srv(instance, 'Android.local', 37123)
-        ..txt(instance, ['bt=AA:BB:CC:DD:EE:FF'])
-        ..aaaa('Android.local', 'fe80::2');
-      transport.deliver(answer.bytes(), 'fe80::2%lo');
-      expect((events.single as TvServiceFound).service.addresses.single.address, 'fe80::2%lo');
-      await sub.cancel();
-    }, testOn: 'linux');
-  });
-
-  group('DNS messages', () {
-    test('a real Avahi answer (legacy unicast, compressed names)', () {
-      final message = DnsMessage.decode(File('test/fixtures/mdns/avahi_legacy_answer.bin').readAsBytesSync());
-      expect(message.isResponse, isTrue);
-      expect(message.id, 0x1234);
-      expect(message.questions.single.name, '_androidtvdirect-test._tcp.local');
-      final byType = {for (final r in message.answers) r.type: r};
-      expect((byType[DnsType.ptr]!.data as DnsPointer).target, 'Test TV._androidtvdirect-test._tcp.local');
-      expect((byType[DnsType.srv]!.data as DnsSrv).port, 6466);
-      expect((byType[DnsType.txt]!.data as DnsText).strings, ['bt=AA:BB:CC:DD:EE:FF']);
-      expect((byType[DnsType.a]!.data as DnsAddress).address.address, '192.168.0.20');
-      expect((byType[DnsType.aaaa]!.data as DnsAddress).address.address, 'fe80::14');
-      expect(message.answers.every((r) => r.ttl <= 10), isTrue);
-    });
-
-    test('a query: id, question count, QU bit', () {
-      final bytes = DnsMessage.query([const DnsQuestion(v2type, DnsType.ptr, unicastResponse: true)]);
-      expect(bytes.sublist(0, 6), [0, 0, 0, 0, 0, 1]);
-      final back = DnsMessage.decode(bytes);
-      expect(back.questions.single.name, v2type);
-      expect(back.questions.single.unicastResponse, isTrue);
-    });
-
-    test('malformed input: FormatException, also for pointer loops', () {
-      expect(() => DnsMessage.decode(Uint8List.fromList([0, 0, 0x84, 0])), throwsFormatException);
-      // One answer whose name points at itself.
-      final loop = Uint8List.fromList([
-        0, 0, 0x84, 0, 0, 0, 0, 1, 0, 0, 0, 0, //
-        0xc0, 12, 0, 1, 0, 1, 0, 0, 0, 10, 0, 4, 1, 2, 3, 4,
-      ]);
-      expect(() => DnsMessage.decode(loop), throwsFormatException);
-    });
-  });
-
-  group('services', () {
-    test('protocol from the type, Bluetooth address from the TXT record', () {
-      final v2 = TvService(type: TvServiceType.v2, instance: 'TV', port: 6466, txt: const {'bt': 'AA:BB'});
-      final v1 = TvService(type: '_AndroidTvRemote._tcp', instance: 'Old TV', port: 6466);
-      expect((v2.protocol, v2.bluetoothAddress), (TvProtocol.v2, 'AA:BB'));
-      expect(v1.protocol, TvProtocol.v1);
-      expect(v1.bluetoothAddress, isNull);
-    });
-  });
-
   group('browsing (fake network, fake clock)', () {
     late FakeClock clock;
     late FakeTransport transport;
@@ -293,7 +133,7 @@ void main() {
     });
   });
 
-  group('review cases', () {
+  group('edge cases', () {
     late FakeClock clock;
     late FakeTransport transport;
     late List<TvServiceEvent> events;
@@ -322,7 +162,7 @@ void main() {
         ...tv.sublist(0, 7),
         tv[7] + 1,
         ...tv.sublist(8),
-        ...Answer._name('Android.local'),
+        ...Answer.labels('Android.local'),
         0,
         1,
         0x80,
