@@ -287,6 +287,7 @@ final class _Attempt {
     } on IOException catch (e) {
       if (_cancelled) throw _cancelledError(e);
       if (_mismatch) throw _wrongTv(e);
+      if (_closedByPeer(e)) throw TvClosedException('$target closed the connection during the TLS handshake', cause: e);
       throw TvProtocolException('The TLS handshake with $target failed', cause: e);
     }
   }
@@ -309,6 +310,11 @@ final class _Attempt {
     actual: _presented ?? 'none',
     cause: cause,
   );
+
+  /// Whether the handshake failed because the other side went away (a remote service restarting behind a port
+  /// forward accepts and closes), not because of what it said. dart:io tells only by its message.
+  static bool _closedByPeer(IOException e) =>
+      e is SocketException || (e is HandshakeException && e.message.contains('terminated during handshake'));
 
   TvRemoteException _connectError(SocketException e) {
     final code = e.osError?.errorCode;

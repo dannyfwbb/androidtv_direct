@@ -245,6 +245,25 @@ void main() {
       expect(socket.isClosed, isFalse);
     });
 
+    test(
+      'a server that closes during the TLS handshake closed the connection; one that is not TLS is a protocol error',
+      () async {
+        final closing = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+        closing.listen((socket) => socket.close());
+        final garbage = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+        garbage.listen((socket) => socket..add(List.filled(64, 0x41)));
+        addTearDown(() => Future.wait([closing.close(), garbage.close()]));
+        Future<TvSocket> to(int port) => TvSocket.connect(
+          InternetAddress.loopbackIPv4,
+          port,
+          context: client.securityContext(),
+          timeout: const Duration(seconds: 5),
+        );
+        await expectLater(to(closing.port), throwsA(isA<TvClosedException>()));
+        await expectLater(to(garbage.port), throwsA(isA<TvProtocolException>()));
+      },
+    );
+
     test('a closed port is TvNoServiceException', () async {
       final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
       final port = server.port;

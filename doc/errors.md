@@ -18,7 +18,7 @@ Every failure of an operation on a TV will be a `TvRemoteException`. Parsing inp
 | `outdatedService` | The TV speaks only the older protocol (recognised by discovery from its announcement) | Ask the user to update the Android TV Remote Service on the TV |
 | `notSupported` | The TV did not offer what the call needs (keys, text, voice, links) | Hide the feature for this TV |
 | `timeout` | The connection is open but the TV stopped answering: no message in either direction for 16 seconds, no answer within a step's deadline, no power report within the session's start deadline, or no TLS handshake (a TV busy with another pairing) | Treat the session as lost; reconnect. While pairing: make sure no other pairing is open |
-| `closed` | The TV closed the connection | Reconnect |
+| `closed` | The TV closed the connection, also in the middle of the TLS handshake (a remote service that is restarting does that behind a port forward) | Reconnect; after a restart the service answered again within half a second |
 | `protocol` | The TV sent something that breaks the protocol; the session is unusable | Reconnect; report it if it repeats |
 | `cancelled` | The app cancelled the operation | — |
 
