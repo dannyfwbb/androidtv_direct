@@ -59,7 +59,7 @@ Android, iOS, macOS, Windows and Linux: everything with `dart:io`, from Dart or 
 
 - [doc/README.md](doc/README.md): scope, protocol notes, errors, security model, compatibility.
 - Every public class and member is documented in the API reference.
-- [example/](example/): pairing and control from the command line, discovery, voice, a platform browser adapter.
+- [example/](example/): pairing, a remote control in the terminal, text, voice from a WAV file, discovery, a platform browser adapter.
 
 ## Versioning
 

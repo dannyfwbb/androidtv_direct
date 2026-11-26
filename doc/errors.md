@@ -1,8 +1,6 @@
 # Errors
 
-> Planned: the error type is designed and will be built in the first phases. Names may still change before 0.1.0.
-
-Every failure of an operation on a TV will be a `TvRemoteException`. Parsing input the app gives (a PEM identity) throws `FormatException`, as Dart's own parsers do; invalid arguments throw `ArgumentError`.
+Every failure of an operation on a TV is a `TvRemoteException`. Parsing input the app gives (a PEM identity) throws `FormatException`, as Dart's own parsers do; invalid arguments throw `ArgumentError` (a `RangeError` for a key code or a volume level out of range); a call the object's state does not allow (a second `finish` while one runs, a second voice session while one is open) throws `StateError`.
 
 `TvRemoteException` is a sealed class, so a `switch` over its subclasses is exhaustive; `code` (a `TvErrorCode`) gives the same information as a stable value for logs, and `cause` keeps the underlying error (an `OSError`, a TLS error, …) when there is one.
 
@@ -20,7 +18,9 @@ Every failure of an operation on a TV will be a `TvRemoteException`. Parsing inp
 | `timeout` | The connection is open but the TV stopped answering: no message in either direction for 16 seconds, no answer within a step's deadline, no power report within the session's start deadline, or no TLS handshake (a TV busy with another pairing) | Treat the session as lost; reconnect. While pairing: make sure no other pairing is open |
 | `closed` | The TV closed the connection, also in the middle of the TLS handshake (a remote service that is restarting does that behind a port forward) | Reconnect; after a restart the service answered again within half a second |
 | `protocol` | The TV sent something that breaks the protocol; the session is unusable | Reconnect; report it if it repeats |
-| `cancelled` | The app cancelled the operation | — |
+| `cancelled` | The app cancelled the operation (`cancelOn`, `cancel`, `close`), or something it did made the operation moot: a newer `setVolume` took over, the text field lost the focus, the session was closed before the call | — |
+
+Once a session has ended, every call on it fails with what ended it: `cancelled` after `close`, otherwise the session's own error (`remote.done` holds it).
 
 A timeout while opening the TCP connection is `unreachable`; `timeout` is reserved for silence once the TV has accepted the connection, which is what a TV that went away, or one busy with another pairing, looks like.
 
