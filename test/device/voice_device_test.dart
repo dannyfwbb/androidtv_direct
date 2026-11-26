@@ -24,16 +24,10 @@ Uint8List tone() {
 void main() {
   group('voice', skip: TestTv.skip, () {
     test('Search opens a session; audio and close go through; the TV ends it', () async {
-      final (identity, fingerprint) = await TestTv.pairFresh();
-      final remote = await TvRemote.connect(
-        TestTv.host!,
-        identity: identity,
-        fingerprint: fingerprint,
-        features: {...TvFeature.defaults, TvFeature.voice},
-      );
+      final remote = await TestTv.connectFresh({TvFeature.voice});
       addTearDown(() async {
         await remote.close();
-        await TestTv.shell(['input', 'keyevent', 'KEYCODE_HOME']);
+        await TestTv.keyEvent('HOME');
       });
       final voice = await remote.startVoice(pace: false);
       await voice.add(tone());

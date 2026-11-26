@@ -17,7 +17,7 @@ void main() {
     late TvClientIdentity identity;
     late String fingerprint;
 
-    setUpAll(() async => (identity, fingerprint) = await TestTv.pairFresh());
+    setUpAll(() async => (:identity, :fingerprint) = await TestTv.pairFresh());
 
     Future<TvRemote> connect({TvClientIdentity? as, String? pin, TvTracer? tracer}) =>
         TvRemote.connect(TestTv.host!, identity: as ?? identity, fingerprint: pin ?? fingerprint, tracer: tracer);

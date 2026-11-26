@@ -16,20 +16,14 @@ void main() {
     late TvRemote remote;
 
     setUpAll(() async {
-      final (identity, fingerprint) = await TestTv.pairFresh();
-      remote = await TvRemote.connect(
-        TestTv.host!,
-        identity: identity,
-        fingerprint: fingerprint,
-        features: {...TvFeature.defaults, TvFeature.ime},
-      );
+      remote = await TestTv.connectFresh({TvFeature.ime});
     });
 
     tearDownAll(() async {
       for (var i = 0; i < 3; i++) {
-        await TestTv.shell(['input', 'keyevent', 'KEYCODE_BACK']);
+        await TestTv.keyEvent('BACK');
       }
-      await TestTv.shell(['input', 'keyevent', 'KEYCODE_HOME']);
+      await TestTv.keyEvent('HOME');
       await remote.close();
     });
 

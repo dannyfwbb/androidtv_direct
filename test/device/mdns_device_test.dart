@@ -24,7 +24,13 @@ void main() {
     final instance = 'Test TV ${pid % 1000}';
     final events = StreamController<TvServiceEvent>.broadcast();
     final sub = TvMdnsBrowser().browse([type]).listen(events.add);
+    addTearDown(() async {
+      await sub.cancel();
+      await events.close();
+    });
     final publisher = await Process.start('python3', ['tool/mdns_publish.py', instance, type, '6466', 'bt=AA:BB']);
+    // A failed expectation must not leave the service published.
+    addTearDown(publisher.kill);
     final found = await events.stream
         .where((e) => e is TvServiceFound && e.service.instance == instance)
         .first
@@ -39,7 +45,5 @@ void main() {
     await publisher.stdin.close();
     await lost;
     await publisher.exitCode;
-    await sub.cancel();
-    await events.close();
   }, skip: skip);
 }

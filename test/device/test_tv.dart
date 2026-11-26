@@ -27,7 +27,9 @@ abstract final class TestTv {
   }
 
   /// The pairing code on screen, or null.
-  static Future<String?> code() async => (await texts()).where((t) => RegExp(r'^[0-9A-F]{6}$').hasMatch(t)).firstOrNull;
+  static Future<String?> code() async => (await texts()).where(_code.hasMatch).firstOrNull;
+
+  static final RegExp _code = RegExp(r'^[0-9A-F]{6}$');
 
   /// Waits for a pairing code on screen.
   static Future<String> waitForCode() async {
@@ -40,11 +42,26 @@ abstract final class TestTv {
   }
 
   /// Pairs a fresh identity with the TV, reading the code from its screen; returns it with the TV's fingerprint.
-  static Future<(TvClientIdentity, String)> pairFresh() async {
+  static Future<({TvClientIdentity identity, String fingerprint})> pairFresh() async {
     final identity = await TvClientIdentity.generate(now: DateTime.now());
     final pairing = await TvPairing.start(host!, identity: identity, clientName: 'androidtv_direct test');
-    return (identity, (await pairing.finish(await waitForCode())).fingerprint);
+    final result = await pairing.finish(await waitForCode());
+    return (identity: identity, fingerprint: result.fingerprint);
   }
+
+  /// Pairs a fresh identity and connects with it, asking for [extra] features beyond the defaults.
+  static Future<TvRemote> connectFresh(Set<TvFeature> extra) async {
+    final paired = await pairFresh();
+    return TvRemote.connect(
+      host!,
+      identity: paired.identity,
+      fingerprint: paired.fingerprint,
+      features: {...TvFeature.defaults, ...extra},
+    );
+  }
+
+  /// Presses [key] (`KEYCODE_…` without the prefix) on the TV through adb.
+  static Future<void> keyEvent(String key) => shell(['input', 'keyevent', 'KEYCODE_$key']);
 
   /// The output of `adb shell` [command] on the TV.
   static Future<String> shell(List<String> command) => _adb(['shell', ...command]);
@@ -84,7 +101,7 @@ abstract final class TestTv {
 
   /// Wakes the TV if it is not awake, to restore it after a test.
   static Future<void> wake() async {
-    if (await wakefulness() != 'Awake') await shell(['input', 'keyevent', 'KEYCODE_WAKEUP']);
+    if (await wakefulness() != 'Awake') await keyEvent('WAKEUP');
   }
 
   static Future<String> _adb(List<String> args) async {

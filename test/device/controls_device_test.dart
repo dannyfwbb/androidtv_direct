@@ -15,7 +15,7 @@ void main() {
     late String fingerprint;
     late TvRemote remote;
 
-    setUpAll(() async => (identity, fingerprint) = await TestTv.pairFresh());
+    setUpAll(() async => (:identity, :fingerprint) = await TestTv.pairFresh());
 
     Future<TvRemote> connect() => TvRemote.connect(
       TestTv.host!,
@@ -40,7 +40,7 @@ void main() {
     });
 
     test('Home and Back reach the TV', () async {
-      await TestTv.shell(['input', 'keyevent', 'KEYCODE_HOME']);
+      await TestTv.keyEvent('HOME');
       await TestTv.shell(['am', 'start', '-n', 'com.android.tv.settings/.MainSettings']);
       expect(await TestTv.waitFor(() async => (await activity()).contains('tv.settings'), true), isTrue);
       final settings = await activity();
@@ -68,7 +68,7 @@ void main() {
     }, timeout: const Timeout(Duration(seconds: 40)));
 
     test('a web link opens its app; a bare package name ends the session, and a new one works', () async {
-      addTearDown(() => TestTv.shell(['input', 'keyevent', 'KEYCODE_HOME']));
+      addTearDown(() => TestTv.keyEvent('HOME'));
       remote.openLink('https://www.youtube.com');
       await remote.changes
           .firstWhere((s) => s.app == 'com.google.android.youtube.tv')
