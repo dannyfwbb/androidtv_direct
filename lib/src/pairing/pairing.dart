@@ -4,6 +4,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:androidtv_direct/src/arguments.dart';
 import 'package:androidtv_direct/src/bytes.dart';
 import 'package:androidtv_direct/src/cancel.dart';
 import 'package:androidtv_direct/src/clock.dart';
@@ -37,7 +38,9 @@ final class TvPairing {
   /// [TvPairingRefusedException] (the TV said no or closed the connection), [TvTimeoutException] (also when the TV is
   /// busy with another pairing), [TvClosedException] (the port closed the connection during the TLS handshake),
   /// [TvProtocolException] or, when [cancelOn] completes before this returns,
-  /// [TvCancelledException]. [cancelOn] has no effect afterwards; use [cancel].
+  /// [TvCancelledException]. [cancelOn] has no effect afterwards; use [cancel]. Throws [ArgumentError] for an empty
+  /// [clientName], a host or port the session would refuse too (see `TvRemote.connect`), and a [timeout] that is not
+  /// longer than zero.
   static Future<TvPairing> start(
     Object host, {
     required TvClientIdentity identity,
@@ -48,6 +51,8 @@ final class TvPairing {
     TvTracer? tracer,
     Future<void>? cancelOn,
   }) async {
+    if (clientName.trim().isEmpty) throw ArgumentError.value(clientName, 'clientName', 'is empty');
+    checkTimeout(timeout, 'timeout');
     final socket = await TvSocket.connect(
       host,
       port,
@@ -110,8 +115,10 @@ final class TvPairing {
   /// first, the pairing is over. A [TvProtocolException] after the secret was sent may come after the TV stored the
   /// client; pairing again is harmless.
   ///
-  /// Throws [StateError] when called while another [finish] runs, or after the pairing is over.
+  /// Throws [StateError] when called while another [finish] runs, or after the pairing is over, and [ArgumentError]
+  /// for a [timeout] that is not longer than zero.
   Future<TvPairingResult> finish(String code, {Duration timeout = const Duration(seconds: 10)}) async {
+    checkTimeout(timeout, 'timeout');
     _checkCanFinish();
     final secret = _secretFor(code);
     _stage = _Stage.finishing;

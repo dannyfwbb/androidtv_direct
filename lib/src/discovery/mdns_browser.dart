@@ -28,13 +28,24 @@ import 'package:meta/meta.dart';
 final class TvMdnsBrowser implements TvServiceBrowser {
   /// Creates a browser.
   TvMdnsBrowser({
-    this.maxQueryInterval = const Duration(seconds: 60),
+    Duration maxQueryInterval = const Duration(seconds: 60),
     TvClock clock = TvClock.system,
     @visibleForTesting MdnsTransport? transport,
-  }) : _clock = clock,
+  }) : maxQueryInterval = _checkInterval(maxQueryInterval),
+       _clock = clock,
        _transport = transport;
 
-  /// The longest pause between two rounds of questions.
+  /// The shortest [maxQueryInterval]: RFC 6762 5.2 asks for at least a second between questions.
+  static const Duration minQueryInterval = Duration(seconds: 1);
+
+  static Duration _checkInterval(Duration interval) {
+    if (interval < minQueryInterval) {
+      throw ArgumentError.value('$interval', 'maxQueryInterval', 'must be at least $minQueryInterval');
+    }
+    return interval;
+  }
+
+  /// The longest pause between two rounds of questions, at least [minQueryInterval].
   final Duration maxQueryInterval;
 
   final TvClock _clock;

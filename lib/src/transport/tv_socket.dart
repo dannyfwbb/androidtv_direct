@@ -6,6 +6,7 @@ import 'dart:collection';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:androidtv_direct/src/arguments.dart';
 import 'package:androidtv_direct/src/clock.dart';
 import 'package:androidtv_direct/src/crypto/x509.dart';
 import 'package:androidtv_direct/src/errors.dart';
@@ -46,7 +47,12 @@ final class TvSocket {
     TvTracer? tracer,
     Future<void>? cancelOn,
   }) async {
-    final attempt = _Attempt('$host:$port', clock, timeout, pin);
+    final attempt = _Attempt(
+      describeTarget(checkHost(host), checkPort(port)),
+      clock,
+      timeout,
+      pin == null ? null : checkFingerprint(pin, 'fingerprint'),
+    );
     cancelOn?.whenComplete(attempt.cancel).ignore();
     final socket = TvSocket._(await attempt.open(host, port, context), port, clock, tracer);
     return socket.._note('connected to ${attempt.target}');

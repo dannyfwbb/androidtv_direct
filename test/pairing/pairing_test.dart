@@ -51,6 +51,8 @@ void main() {
       await expectLater(pairing.finish(wrong), throwsA(isA<TvWrongCodeException>()), reason: wrong);
       expect(pairing.isOpen, isTrue);
     }
+    await expectLater(pairing.finish(code, timeout: Duration.zero), throwsArgumentError);
+    expect(pairing.isOpen, isTrue);
     expect(fake.secretReceived, isFalse);
     expect((await pairing.finish(code)).fingerprint, tvFingerprint);
   });

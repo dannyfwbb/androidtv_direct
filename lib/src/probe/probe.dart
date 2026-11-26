@@ -1,6 +1,7 @@
 // Copyright 2026 The androidtv_direct authors
 // SPDX-License-Identifier: Apache-2.0
 
+import 'package:androidtv_direct/src/arguments.dart';
 import 'package:androidtv_direct/src/clock.dart';
 import 'package:androidtv_direct/src/errors.dart';
 import 'package:androidtv_direct/src/identity/client_identity.dart';
@@ -22,7 +23,8 @@ abstract final class TvProbe {
   /// used. [timeout] limits the connection and the handshake. Throws [TvUnreachableException], [TvNoServiceException],
   /// [TvTimeoutException] (the TV accepted the connection but did not finish TLS: it is busy with a pairing),
   /// [TvClosedException] (the port closed the connection during the handshake), [TvProtocolException] (no usable
-  /// certificate) or, when [cancelOn] completes first, [TvCancelledException].
+  /// certificate) or, when [cancelOn] completes first, [TvCancelledException]; [ArgumentError] for a host, port or
+  /// timeout `TvRemote.connect` would refuse too.
   static Future<TvIdentity> identify(
     Object host, {
     int port = TvPairing.defaultPort,
@@ -33,6 +35,7 @@ abstract final class TvProbe {
     Future<void>? cancelOn,
     DateTime Function() now = DateTime.now,
   }) async {
+    checkTimeout(timeout, 'timeout');
     final client = identity ?? await _sharedIdentity(now);
     final socket = await TvSocket.connect(
       host,
@@ -61,7 +64,8 @@ abstract final class TvProbe {
   /// hosts that answer as a TV's remote service (a certificate made by it), in the order they answer; hosts that do
   /// not answer, refuse or speak something else are left out. Nothing appears on the TVs. Which hosts to try (a
   /// subnet, a list) is the caller's policy. Pausing the subscription stops new probes; cancelling it stops the
-  /// running ones too.
+  /// running ones too. Throws [ArgumentError] for a port or timeout `TvRemote.connect` would refuse too, and a
+  /// [concurrency] below one; a host in [hosts] that is not one is left out like one that does not answer.
   static Stream<TvScanResult> scan(
     Iterable<Object> hosts, {
     int port = TvPairing.defaultPort,
@@ -70,10 +74,14 @@ abstract final class TvProbe {
     TvClientIdentity? identity,
     TvClock clock = TvClock.system,
     DateTime Function() now = DateTime.now,
-  }) => scanHosts(
-    hosts,
-    concurrency: concurrency,
-    identify: (host, cancelOn) =>
-        identify(host, port: port, identity: identity, timeout: timeout, clock: clock, now: now, cancelOn: cancelOn),
-  );
+  }) {
+    checkTimeout(timeout, 'timeout');
+    checkPort(port);
+    return scanHosts(
+      hosts,
+      concurrency: concurrency,
+      identify: (host, cancelOn) =>
+          identify(host, port: port, identity: identity, timeout: timeout, clock: clock, now: now, cancelOn: cancelOn),
+    );
+  }
 }

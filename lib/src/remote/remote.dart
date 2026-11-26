@@ -4,6 +4,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:androidtv_direct/src/arguments.dart';
 import 'package:androidtv_direct/src/cancel.dart';
 import 'package:androidtv_direct/src/clock.dart';
 import 'package:androidtv_direct/src/errors.dart';
@@ -52,7 +53,9 @@ final class TvRemote {
   /// Throws [TvUnreachableException], [TvNoServiceException], [TvWrongTvException], [TvNotPairedException] (the TV does
   /// not know [identity]), [TvTimeoutException] (no TLS within [connectTimeout], or no start within [startTimeout]),
   /// [TvClosedException], [TvProtocolException] or, when [cancelOn] completes before this returns,
-  /// [TvCancelledException].
+  /// [TvCancelledException]. Throws [ArgumentError] for a host that is neither a name, an address as text nor an
+  /// `InternetAddress`, a port outside 1 to 65535, a [fingerprint] that is not 64 hexadecimal characters (either case
+  /// is taken), and a timeout that is not longer than zero.
   static Future<TvRemote> connect(
     Object host, {
     required TvClientIdentity identity,
@@ -68,6 +71,10 @@ final class TvRemote {
     TvTracer? tracer,
     Future<void>? cancelOn,
   }) async {
+    checkTimeout(connectTimeout, 'connectTimeout');
+    checkTimeout(startTimeout, 'startTimeout');
+    checkTimeout(idleTimeout, 'idleTimeout');
+    checkTimeout(textGiveUp, 'textGiveUp');
     final socket = await TvSocket.connect(
       host,
       port,
@@ -141,12 +148,17 @@ final class TvRemote {
   /// Throws [TvNotSupportedException] without [TvFeature.key] or [TvFeature.volume], or before the TV reported its
   /// volume; [RangeError] for a level out of range; [TvTimeoutException] when a report does not come within
   /// [stepTimeout] or the level is not reached within [timeout]; [TvCancelledException] when a newer [setVolume]
-  /// takes over; and what ended the session if it ends meanwhile.
+  /// takes over; [ArgumentError] for a timeout that is not longer than zero; and what ended the session if it ends
+  /// meanwhile.
   Future<void> setVolume(
     int level, {
     Duration stepTimeout = const Duration(seconds: 2),
     Duration timeout = const Duration(seconds: 15),
-  }) => _volume.set(level, stepTimeout: stepTimeout, timeout: timeout);
+  }) async {
+    checkTimeout(stepTimeout, 'stepTimeout');
+    checkTimeout(timeout, 'timeout');
+    return _volume.set(level, stepTimeout: stepTimeout, timeout: timeout);
+  }
 
   /// Opens a voice session: presses Search and waits up to [timeout] for the TV's voice search to open it. Feed it the
   /// app's microphone audio (16-bit PCM, mono, 8 kHz) and [TvVoiceSession.close] it when the user stops talking.
@@ -154,9 +166,10 @@ final class TvRemote {
   /// [pace] sends the audio in real time, as a microphone delivers it; without it, chunks go out as fast as they are
   /// added. Throws [TvNotSupportedException] without [TvFeature.voice] and [TvFeature.key] (voice is not in
   /// [TvFeature.defaults]: ask for it at [connect]), [TvTimeoutException] when the TV does not open the session in
-  /// time, [StateError] while another voice session of this remote is starting or not [TvVoiceSession.done], and
-  /// what ended the session.
+  /// time, [StateError] while another voice session of this remote is starting or not [TvVoiceSession.done],
+  /// [ArgumentError] for a [timeout] that is not longer than zero, and what ended the session.
   Future<TvVoiceSession> startVoice({Duration timeout = const Duration(seconds: 2), bool pace = true}) async {
+    checkTimeout(timeout, 'timeout');
     if (_voiceBusy) throw StateError('A voice session is open');
     _voiceStarting = true;
     try {
