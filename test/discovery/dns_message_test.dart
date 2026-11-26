@@ -8,6 +8,7 @@ import 'package:androidtv_direct/src/discovery/dns_message.dart';
 import 'package:test/test.dart';
 
 import '../support/fake_mdns.dart';
+import '../support/fuzz.dart';
 
 void main() {
   group('DNS messages', () {
@@ -42,5 +43,29 @@ void main() {
       ]);
       expect(() => DnsMessage.decode(loop), throwsFormatException);
     });
+  });
+
+  test('fuzz: hostile packets only ever fail as FormatException', () {
+    final avahi = File('test/fixtures/mdns/avahi_legacy_answer.bin').readAsBytesSync();
+    final ours = Answer()
+      ..ptr(v2type, instance)
+      ..srv(instance, 'Android.local', 6466)
+      ..txt(instance, ['bt=AA:BB:CC:DD:EE:FF', 'empty=', 'flag'])
+      ..a('Android.local', '192.168.0.20')
+      ..aaaa('Android.local', 'fe80::1');
+    fuzz(DnsMessage.decode, seeds: [avahi, ours.bytes()], count: 50000);
+  });
+
+  test('records of unknown types are kept raw; other classes are dropped; a cache-flush bit is read', () {
+    final message = DnsMessage.decode(
+      Uint8List.fromList([
+        0, 0, 0x84, 0, 0, 0, 0, 2, 0, 0, 0, 0, //
+        ...Answer.labels('x.local'), 0, 99, 0x80, 1, 0, 0, 0, 10, 0, 2, 7, 8, // type 99, IN, cache-flush
+        ...Answer.labels('y.local'), 0, 1, 0, 3, 0, 0, 0, 10, 0, 4, 1, 2, 3, 4, // A, class CH
+      ]),
+    );
+    final record = message.answers.single;
+    expect((record.name, record.type, record.cacheFlush), ('x.local', 99, true));
+    expect((record.data as DnsRaw).bytes, [7, 8]);
   });
 }

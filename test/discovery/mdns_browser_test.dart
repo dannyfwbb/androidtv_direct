@@ -248,5 +248,65 @@ void main() {
       expect(asked.map((q) => (q.name, q.type)), contains((instance, DnsType.srv)));
       expect(asked.map((q) => (q.name, q.type)), contains(('Android.local', DnsType.a)));
     });
+
+    test('a flood of unrelated instances is bounded and a TV announced after it is still found', () async {
+      await start();
+      for (var i = 0; i < 3000; i++) {
+        transport.deliver((Answer()..ptr(v2type, 'Fake $i.$v2type')).bytes(), '10.0.${i ~/ 250}.${i % 250 + 1}');
+      }
+      transport.deliver(fullTv().bytes());
+      expect(events.whereType<TvServiceFound>().map((e) => e.service.instance), ['Living room TV']);
+    });
+
+    test('a TTL past 75 minutes is capped: a TV that went silent is lost after 75 minutes, not 136 years', () async {
+      await start();
+      transport.deliver(
+        (Answer()
+              ..ptr(v2type, instance, ttl: 0xffffffff)
+              ..srv(instance, 'Android.local', 6466, ttl: 0xffffffff)
+              ..a('Android.local', '192.168.0.20', ttl: 0xffffffff))
+            .bytes(),
+      );
+      expect(events.single, isA<TvServiceFound>());
+      for (var s = 0; s < 4501; s++) {
+        clock.advance(const Duration(seconds: 1));
+      }
+      expect(events.last, isA<TvServiceLost>());
+    });
+
+    test('names in answers match without case; the instance keeps the case it was announced with', () async {
+      await start();
+      final upper = 'Big TV.${v2type.toUpperCase()}';
+      transport.deliver(
+        (Answer()
+              ..ptr(v2type.toUpperCase(), upper)
+              ..srv(upper.toLowerCase(), 'TV.LOCAL', 6466)
+              ..a('tv.local', '192.168.0.30'))
+            .bytes(),
+      );
+      expect(events.single.service.instance, 'Big TV');
+      expect(events.single.service.address!.address, '192.168.0.30');
+    });
+
+    test('two TVs are two services; a new address is an update; each is lost on its own', () async {
+      await start();
+      transport
+        ..deliver(fullTv().bytes())
+        ..deliver(
+          (Answer()
+                ..ptr(v2type, 'Bedroom.$v2type')
+                ..srv('Bedroom.$v2type', 'Bed.local', 6466)
+                ..a('Bed.local', '192.168.0.21'))
+              .bytes(),
+          '192.168.0.21',
+        );
+      expect(events.whereType<TvServiceFound>().map((e) => e.service.instance), ['Living room TV', 'Bedroom']);
+      transport.deliver((Answer()..a('Android.local', '192.168.0.99')).bytes());
+      final updated = events.whereType<TvServiceUpdated>().single.service;
+      expect(updated.addresses.map((a) => a.address), containsAll(['192.168.0.20', '192.168.0.99']));
+      transport.deliver((Answer()..ptr(v2type, 'Bedroom.$v2type', ttl: 0)).bytes(), '192.168.0.21');
+      clock.advance(const Duration(seconds: 2));
+      expect(events.whereType<TvServiceLost>().map((e) => e.service.instance), ['Bedroom']);
+    });
   });
 }

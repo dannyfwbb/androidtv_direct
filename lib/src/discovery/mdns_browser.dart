@@ -90,6 +90,33 @@ final class _Entry {
   Duration get lifetime => Duration(seconds: record.ttl);
 }
 
+/// The cache as lookups need it.
+final class _CacheView {
+  _CacheView(Iterable<_Entry> entries, bool Function(DnsRecord) isBrowsedPtr) {
+    for (final e in entries) {
+      (byName[e.name] ??= []).add(e);
+      if (e.record.data case DnsPointer(:final target) when isBrowsedPtr(e.record)) {
+        if (instanceNames.add(target.toLowerCase())) instances.add(target);
+      }
+    }
+    for (final e in entries) {
+      if (e.record.data case DnsSrv(:final target) when instanceNames.contains(e.name)) hosts.add(target.toLowerCase());
+    }
+  }
+
+  /// Entries by lower-case name.
+  final Map<String, List<_Entry>> byName = {};
+
+  /// The instances of the browsed types, once each, as first announced.
+  final List<String> instances = [];
+
+  /// [instances], lower-case.
+  final Set<String> instanceNames = {};
+
+  /// The hosts the instances' SRV records name, lower-case.
+  final Set<String> hosts = {};
+}
+
 /// Bounds against a noisy or hostile network.
 const int _maxEntries = 1024;
 const int _maxTtl = 4500; // 75 minutes, Android's PTR TTL.
@@ -126,8 +153,17 @@ final class _Session {
   final void Function(TvServiceEvent) emit;
   final void Function(Object) fail;
 
-  /// Lower-case name, type, data and sender → entry.
+  /// Lower-case name, type, data and sender → entry, oldest first.
   final Map<_CacheKey, _Entry> _cache = {};
+
+  /// What the cache holds, by name, built when first needed after the cache changed: every packet and tick looks
+  /// names up, and a full cache (a flood) must not make each of them scan it once per instance.
+  _CacheView? _index;
+
+  _CacheView get _view => _index ??= _CacheView(_cache.values, _isBrowsedPtr);
+
+  /// The entries named [name], in any case.
+  List<_Entry> _named(String name) => _view.byName[name.toLowerCase()] ?? const [];
 
   /// Lowercase instance full name → service reported.
   final Map<String, TvService> _reported = {};
@@ -215,10 +251,11 @@ final class _Session {
     return DnsQuestion(name, type);
   }
 
-  /// SRV/TXT of instances without an SRV, addresses of targets without one, each rate-limited.
-  List<DnsQuestion> _missing() {
+  /// SRV/TXT of instances without an SRV, addresses of targets without one, each rate-limited; of [instances] only,
+  /// or of every instance known.
+  List<DnsQuestion> _missing([Iterable<String>? instances]) {
     final questions = <DnsQuestion>[];
-    for (final instance in _instances()) {
+    for (final instance in instances ?? _view.instances) {
       final srv = _srv(instance);
       if (srv == null) {
         questions.addAll([?_limited(instance, DnsType.srv), ?_limited(instance, DnsType.txt)]);
@@ -248,25 +285,34 @@ final class _Session {
     final stored = _store(answers, sender, now);
     _bound();
     if (flushed || stored) _scheduleReport();
-    _send(_missing());
+    // Only what this packet named can need a question now; the tick asks for the rest.
+    _send(_missing(_instancesIn(answers)));
   }
+
+  /// The instances [answers] name: PTR targets and the owners of SRV and TXT records.
+  Set<String> _instancesIn(List<DnsRecord> answers) => {
+    for (final r in answers)
+      if (r.data case DnsPointer(:final target)) target else if (r.type != DnsType.a && r.type != DnsType.aaaa) r.name,
+  };
 
   /// Only what belongs to the browsed types: their PTRs, the instances those name (in the cache or in [answers]), and
   /// the hosts their SRVs name. Everything else on the network is ignored.
   bool Function(DnsRecord) _relevance(List<DnsRecord> answers) {
-    final instances = {
-      ..._instances().map((i) => i.toLowerCase()),
+    final view = _view;
+    final newInstances = {
       for (final r in answers)
         if (r.data case DnsPointer(:final target) when _isBrowsedPtr(r)) target.toLowerCase(),
     };
-    final hosts = {
-      for (final r in [for (final e in _cache.values) e.record, ...answers])
-        if (r.data case DnsSrv(:final target) when instances.contains(r.name.toLowerCase())) target.toLowerCase(),
+    bool isInstance(String name) => view.instanceNames.contains(name) || newInstances.contains(name);
+    final newHosts = {
+      for (final r in answers)
+        if (r.data case DnsSrv(:final target) when isInstance(r.name.toLowerCase())) target.toLowerCase(),
     };
+    bool isHost(String name) => view.hosts.contains(name) || newHosts.contains(name);
     return (r) => switch (r.type) {
       DnsType.ptr => _isBrowsedPtr(r),
-      DnsType.srv || DnsType.txt => instances.contains(r.name.toLowerCase()),
-      DnsType.a || DnsType.aaaa => hosts.contains(r.name.toLowerCase()),
+      DnsType.srv || DnsType.txt => isInstance(r.name.toLowerCase()),
+      DnsType.a || DnsType.aaaa => isHost(r.name.toLowerCase()),
       _ => false,
     };
   }
@@ -283,7 +329,9 @@ final class _Session {
         (key, e) => key.name == name && key.type == r.type && key.sender == sender && e.received < now - _second,
       );
     }
-    return _cache.length != before;
+    if (_cache.length == before) return false;
+    _index = null;
+    return true;
   }
 
   /// Stores [answers]; a goodbye (TTL 0) makes this sender's record go in a second (RFC 6762 10.1), while the same
@@ -299,6 +347,9 @@ final class _Session {
         continue;
       }
       final record = r.ttl > _maxTtl ? r.withTtl(_maxTtl) : r;
+      _index = null;
+      // Removed first, so the map's order stays the order of arrival, which [_bound] relies on.
+      _cache.remove(key);
       _cache[key] = _Entry(
         record,
         received: now,
@@ -313,10 +364,9 @@ final class _Session {
   /// Drops the oldest entries beyond the bound.
   void _bound() {
     if (_cache.length <= _maxEntries) return;
-    final oldest = _cache.entries.toList()..sort((a, b) => a.value.received.compareTo(b.value.received));
-    for (final e in oldest.take(_cache.length - _maxEntries)) {
-      _cache.remove(e.key);
-    }
+    _index = null;
+    final oldest = _cache.keys.take(_cache.length - _maxEntries).toList();
+    oldest.forEach(_cache.remove);
   }
 
   /// Once a second: expiry, refresh questions at 80 % and 90 % of a record's TTL (RFC 6762 5.2), questions for what is
@@ -325,6 +375,7 @@ final class _Session {
     final now = clock.elapsed;
     final before = _cache.length;
     _cache.removeWhere((_, e) => e.expires <= now);
+    if (_cache.length != before) _index = null;
     _send(_refreshQuestions(now));
     _send(_missing());
     if (_cache.length != before) _scheduleReport();
@@ -356,21 +407,10 @@ final class _Session {
     });
   }
 
-  /// The instances the cache knows, once each.
-  Iterable<String> _instances() sync* {
-    final seen = <String>{};
-    for (final e in _cache.values) {
-      if (e.record.data case DnsPointer(:final target) when _isBrowsedPtr(e.record)) {
-        if (seen.add(target.toLowerCase())) yield target;
-      }
-    }
-  }
-
   /// The newest record of [type] for [name].
   _Entry? _newest(String name, int type) {
-    final lower = name.toLowerCase();
     _Entry? newest;
-    for (final e in _cache.values.where((e) => e.record.type == type && e.name == lower)) {
+    for (final e in _named(name).where((e) => e.record.type == type)) {
       if (newest == null || e.received >= newest.received) newest = e;
     }
     return newest;
@@ -384,10 +424,9 @@ final class _Session {
   /// The host's addresses, most useful first: IPv4 before IPv6, routable before link-local, loopback last; no
   /// duplicates.
   List<InternetAddress> _addresses(String host) {
-    final lower = host.toLowerCase();
     final found = {
-      for (final e in _cache.values)
-        if (e.record.data case DnsAddress(:final address) when e.name == lower) _inZoneOf(address, e.from),
+      for (final e in _named(host))
+        if (e.record.data case DnsAddress(:final address)) _inZoneOf(address, e.from),
     }.toList();
     return found..sort((a, b) {
       final byRank = _rank(a).compareTo(_rank(b));
