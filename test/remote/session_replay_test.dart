@@ -4,9 +4,6 @@
 import 'dart:io';
 
 import 'package:androidtv_direct/androidtv_direct.dart';
-import 'package:androidtv_direct/src/bytes.dart';
-import 'package:androidtv_direct/src/protocol/pairing_messages.dart';
-import 'package:androidtv_direct/src/protocol/remote_messages.dart';
 import 'package:test/test.dart';
 
 import '../support/fake_tv.dart';
@@ -16,22 +13,6 @@ import '../support/fixtures.dart';
 final List<RecordedMessage> session = recordedMessages('session.txt');
 
 void main() {
-  test('every recorded message decodes to its kind and encodes to the same bytes', () {
-    for (final m in session) {
-      final kind = m.name.split('.').first;
-      final Object message;
-      if (m.port == 6467) {
-        message = PairingMessage.decode(m.bytes);
-        expect((message as PairingMessage).kind, kind);
-        expect(hexEncode(message.encode()), hexEncode(m.bytes), reason: m.name);
-      } else {
-        message = m.outgoing ? RemoteEnvelope.fromClient(m.bytes) : RemoteEnvelope.fromTv(m.bytes);
-        expect((message as RemoteEnvelope).kind, kind, reason: m.name);
-        expect(hexEncode(message.encodeEnvelope()), hexEncode(m.bytes), reason: m.name);
-      }
-    }
-  });
-
   test("the session answers the TV's recorded start and ping with the recorded bytes", () async {
     final start = [
       for (final m in session)

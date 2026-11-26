@@ -24,9 +24,12 @@ Future<void> main(List<String> args) async {
     fingerprint: fingerprint,
     features: {...TvFeature.defaults, TvFeature.voice},
   );
-  final voice = await remote.startVoice();
-  await voice.addStream(File(audio).openRead());
-  await voice.close();
-  print('Sent ${File(audio).lengthSync()} bytes; the TV answers on its screen.');
-  await remote.close();
+  try {
+    final voice = await remote.startVoice();
+    await voice.addStream(File(audio).openRead());
+    await voice.close();
+    print('Sent ${File(audio).lengthSync()} bytes; the TV answers on its screen.');
+  } finally {
+    await remote.close();
+  }
 }

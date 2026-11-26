@@ -17,14 +17,17 @@ Future<void> main(List<String> args) async {
   final identity = await _identity();
   final fingerprint = await _fingerprint(host, identity);
   final remote = await TvRemote.connect(host, identity: identity, fingerprint: fingerprint);
-  print('${remote.device.vendor} ${remote.device.model}, Android ${remote.device.androidRelease}');
-  print('power ${remote.state.power}, volume ${remote.state.volume}, features ${remote.features.map((f) => f.name)}');
-  remote.changes.listen((state) => print('now: $state'));
-  remote.press(TvKey.volumeUp);
-  await Future<void>.delayed(const Duration(seconds: 1));
-  remote.press(TvKey.volumeDown);
-  await Future<void>.delayed(const Duration(seconds: 1));
-  await remote.close();
+  try {
+    print('${remote.device.vendor} ${remote.device.model}, Android ${remote.device.androidRelease}');
+    print('power ${remote.state.power}, volume ${remote.state.volume}, features ${remote.features.map((f) => f.name)}');
+    remote.changes.listen((state) => print('now: $state'));
+    for (final key in [TvKey.volumeUp, TvKey.volumeDown]) {
+      remote.press(key);
+      await Future<void>.delayed(const Duration(seconds: 1));
+    }
+  } finally {
+    await remote.close();
+  }
 }
 
 Future<TvClientIdentity> _identity() async {
