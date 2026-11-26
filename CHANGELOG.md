@@ -12,4 +12,4 @@ Nothing released yet. Built so far:
 - `TvTextField`: the focused text field as state, `setText` that brings it to any text with edits that name the range they replace (wherever the cursor is, a 2000-character field emptied at once; Del keys for TVs without ranges), changes made on the TV.
 - `startVoice` and `TvVoiceSession`: audio for the TV's voice search in 20 480-byte chunks, paced in real time; the TV's own end of a session is followed.
 - Discovery: `TvMdnsBrowser` for `_androidtvremote2._tcp` and `_androidtvremote._tcp` (an outdated remote service), `TvServiceBrowser` for platform browsers, `TvProbe.scan` over addresses the app chooses.
-- One sealed `TvRemoteException` with stable `TvErrorCode`s; deadlines and cancellation; a tracing hook that never carries typed text unless asked to.
+- One sealed `TvRemoteException` with stable `TvErrorCode`s; deadlines and cancellation (a connection given up during its TLS handshake, by timeout or cancellation, is closed at once; cancelling a scan stops its running probes); a tracing hook that never carries typed text unless asked to.

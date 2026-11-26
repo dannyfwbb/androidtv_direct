@@ -270,6 +270,7 @@ final class TextInput {
 
   void _end(TvRemoteException? reason) {
     _current?._stop(reason ?? const TvCancelledException('The session was closed'));
+    _current = null;
     unawaited(_focus.close());
     unawaited(_events.cancel());
   }

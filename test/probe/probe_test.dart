@@ -1,6 +1,7 @@
 // Copyright 2026 The androidtv_direct authors
 // SPDX-License-Identifier: Apache-2.0
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:androidtv_direct/androidtv_direct.dart';
@@ -35,5 +36,28 @@ void main() {
       TvProbe.identify(InternetAddress.loopbackIPv4, port: port, identity: testClient()),
       throwsA(isA<TvNoServiceException>()),
     );
+  });
+
+  test('cancelOn stops a probe that waits for the handshake', () async {
+    final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    final held = <Socket>[];
+    server.listen(held.add);
+    addTearDown(() async {
+      for (final socket in held) {
+        socket.destroy();
+      }
+      await server.close();
+    });
+    final cancel = Completer<void>();
+    final outcome = TvProbe.identify(
+      InternetAddress.loopbackIPv4,
+      port: server.port,
+      identity: testClient(),
+      timeout: const Duration(seconds: 30),
+      cancelOn: cancel.future,
+    );
+    await until(() => held.isNotEmpty);
+    cancel.complete();
+    await expectLater(outcome.timeout(const Duration(seconds: 5)), throwsA(isA<TvCancelledException>()));
   });
 }

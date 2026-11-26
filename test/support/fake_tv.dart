@@ -45,18 +45,24 @@ final class FakeTv {
     FakeTvHandler? onRemote,
     String identityName = 'tv',
   }) async {
+    final context = serverContext(identityName: identityName, trusted: trusted);
+    final pairing = await _Port.bind(context, onPairing);
+    try {
+      return FakeTv._(pairing, await _Port.bind(context, onRemote), _derOf(testIdentity(identityName).certificatePem));
+    } on Object {
+      await pairing.close();
+      rethrow;
+    }
+  }
+
+  /// A TLS server context with the identity [identityName], trusting [trusted] client certificates (PEM).
+  static SecurityContext serverContext({String identityName = 'tv', List<String> trusted = const []}) {
     final identity = testIdentity(identityName);
     final context = SecurityContext(withTrustedRoots: false)
       ..useCertificateChainBytes(utf8.encode(identity.certificatePem))
       ..usePrivateKeyBytes(utf8.encode(identity.privateKeyPem));
     if (trusted.isNotEmpty) context.setTrustedCertificatesBytes(utf8.encode(trusted.join()));
-    final pairing = await _Port.bind(context, onPairing);
-    try {
-      return FakeTv._(pairing, await _Port.bind(context, onRemote), _derOf(identity.certificatePem));
-    } on Object {
-      await pairing.close();
-      rethrow;
-    }
+    return context;
   }
 
   final _Port _pairing;

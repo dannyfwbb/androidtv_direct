@@ -12,6 +12,7 @@ import 'package:androidtv_direct/src/errors.dart';
 import 'package:androidtv_direct/src/identity/tv_identity.dart';
 import 'package:androidtv_direct/src/protocol/frame.dart';
 import 'package:androidtv_direct/src/trace.dart';
+import 'package:androidtv_direct/src/transport/secure_link.dart';
 
 /// A TLS connection to one of the TV's ports, read and written in frames.
 ///
@@ -19,14 +20,8 @@ import 'package:androidtv_direct/src/trace.dart';
 /// is the caller's job (by fingerprint). Frames arrive in order through [receive]; once the connection ends, every
 /// pending and later [receive] fails with the same error.
 final class TvSocket {
-  TvSocket._(this._socket, this.port, this._clock, this._tracer) {
-    _subscription = _socket.listen(
-      _onData,
-      onError: _onError,
-      onDone: () => _end(const TvClosedException('The TV closed the connection')),
-    );
-    // Write errors surface as read errors or the end of the stream.
-    _socket.done.ignore();
+  TvSocket._(this._link, this.port, this._clock, this._tracer) {
+    _link.listen(onData: _onData, onEnd: _onLinkEnd);
   }
 
   /// Opens a TLS connection to [host]:[port] presenting [context]'s certificate: TCP within [timeout], then the TLS
@@ -57,10 +52,9 @@ final class TvSocket {
     return socket.._note('connected to ${attempt.target}');
   }
 
-  final SecureSocket _socket;
+  final SecureLink _link;
   final TvClock _clock;
   final TvTracer? _tracer;
-  late final StreamSubscription<Uint8List> _subscription;
   final FrameReader _reader = FrameReader();
   final Queue<Uint8List> _frames = Queue();
   final Completer<TvRemoteException?> _ended = Completer();
@@ -71,7 +65,7 @@ final class TvSocket {
   final int port;
 
   /// The certificate the TV presented.
-  X509Certificate? get peerCertificate => _socket.peerCertificate;
+  X509Certificate? get peerCertificate => _link.peerCertificate;
 
   /// What the TV's certificate says. Throws [TvProtocolException] if the TV presented none, or one this package
   /// cannot use (not RSA, malformed).
@@ -94,7 +88,7 @@ final class TvSocket {
   void send(Uint8List body, {required String kind}) {
     if (isClosed) return;
     _traceMessage(outgoing: true, kind: kind, body: body);
-    _socket.add(encodeFrame(body));
+    _link.add(encodeFrame(body));
   }
 
   /// The next frame, within [timeout].
@@ -125,13 +119,7 @@ final class TvSocket {
   /// Closes the connection from this side; [done] completes with `null`.
   Future<void> close() async {
     _end(null);
-    await _subscription.cancel();
-    try {
-      await _socket.close();
-    } on IOException {
-      // Already broken; destroy below.
-    }
-    _socket.destroy();
+    await _link.close();
   }
 
   /// Waits for a frame or the end of the connection, up to [timeout].
@@ -151,7 +139,7 @@ final class TvSocket {
       frames = _reader.add(chunk);
     } on FormatException catch (e) {
       _end(TvProtocolException('The TV sent a malformed frame', cause: e));
-      _socket.destroy();
+      _link.destroy();
       return;
     }
     final onFrame = _onFrame;
@@ -166,7 +154,11 @@ final class TvSocket {
     }
   }
 
-  void _onError(Object error) => _end(TvClosedException('The connection to port $port failed', cause: error));
+  void _onLinkEnd([Object? error]) => _end(
+    error == null
+        ? const TvClosedException('The TV closed the connection')
+        : TvClosedException('The connection to port $port failed', cause: error),
+  );
 
   void _end(TvRemoteException? error) {
     if (_ended.isCompleted) return;
@@ -209,10 +201,10 @@ final class _Attempt {
   String? _presented;
   bool _cancelled = false;
   bool _opened = false;
-  ConnectionTask<Socket>? _task;
-  Socket? _socket;
+  ConnectionTask<RawSocket>? _task;
+  RawSocket? _socket;
 
-  /// Completes on [cancel]: a TLS handshake does not notice its plain socket going away, so it races this.
+  /// Completes on [cancel]: a TLS handshake whose plain socket is closed never completes, so it races this.
   final Completer<void> _cancel = Completer();
 
   /// Stops the attempt; does nothing once [open] has returned (the caller owns the socket then).
@@ -220,25 +212,25 @@ final class _Attempt {
     if (_opened || _cancelled) return;
     _cancelled = true;
     _task?.cancel();
-    _socket?.destroy();
+    _socket?.close().ignore();
     _cancel.complete();
   }
 
   TvCancelledException _cancelledError([Object? cause]) =>
       TvCancelledException('The connection to $target was cancelled', cause: cause);
 
-  /// TCP, then TLS over it: the TLS socket owns the plain one.
-  Future<SecureSocket> open(Object host, int port, SecurityContext context) async {
-    final socket = await _secure(await _openTcp(host, port), context);
+  /// TCP, then TLS over it.
+  Future<SecureLink> open(Object host, int port, SecurityContext context) async {
+    final link = await _secure(await _openTcp(host, port), context);
     _opened = true;
-    return socket;
+    return link;
   }
 
-  Future<Socket> _openTcp(Object host, int port) async {
+  Future<RawSocket> _openTcp(Object host, int port) async {
     try {
       // The host lookup happens before startConnect returns its task, so it is under the deadline too.
       final task = await clock.deadline(
-        Socket.startConnect(host, port),
+        RawSocket.startConnect(host, port),
         timeout,
         () => TvUnreachableException('$target could not be resolved within $timeout'),
       );
@@ -258,10 +250,10 @@ final class _Attempt {
     }
   }
 
-  Future<SecureSocket> _secure(Socket socket, SecurityContext context) async {
-    final SecureSocket tls;
+  Future<SecureLink> _secure(RawSocket socket, SecurityContext context) async {
+    final SecureLink tls;
     try {
-      tls = await _handshake(socket, context);
+      tls = SecureLink(await _handshake(socket, context), socket);
     } on IOException catch (e) {
       if (_cancelled) throw _cancelledError(e);
       if (_mismatch) throw _wrongTv(e);
@@ -282,11 +274,10 @@ final class _Attempt {
     return tls;
   }
 
-  /// The TLS handshake within [timeout], racing [cancel]. A handshake given up on may still finish later: its socket
-  /// is nobody's then, and is destroyed.
-  Future<SecureSocket> _handshake(Socket socket, SecurityContext context) async {
-    final secured = SecureSocket.secure(socket, context: context, onBadCertificate: _accept);
-    final cancelled = _cancel.future.then<SecureSocket>((_) => throw _cancelledError());
+  /// The TLS handshake within [timeout], racing [cancel]. One given up on ends with its plain socket closed.
+  Future<RawSecureSocket> _handshake(RawSocket socket, SecurityContext context) async {
+    final secured = RawSecureSocket.secure(socket, context: context, onBadCertificate: _accept);
+    final cancelled = _cancel.future.then<RawSecureSocket>((_) => throw _cancelledError());
     try {
       return await clock.deadline(
         Future.any([secured, cancelled]),
@@ -294,8 +285,8 @@ final class _Attempt {
         () => TvTimeoutException('$target accepted the connection but did not finish TLS within $timeout'),
       );
     } on Object {
-      socket.destroy();
-      secured.then((orphan) => orphan.destroy(), onError: (Object _) {}).ignore();
+      socket.close().ignore();
+      secured.ignore();
       rethrow;
     }
   }

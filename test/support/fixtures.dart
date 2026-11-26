@@ -50,6 +50,9 @@ Uint8List pemOf(String pem) => Pem.decode(pem).single.der;
 /// The private key of the test identity called [name].
 RsaPrivateKey testKey(String name) => RsaPrivateKey.fromPkcs8(Pem.decode(testIdentity(name).privateKeyPem).single.der);
 
+/// The fake TV's key fingerprint.
+final String tvFingerprint = TvIdentity.fromCertificate(pemOf(testIdentity('tv').certificatePem)).fingerprint;
+
 /// The test identity called [name] as a client identity; the fake TV trusts `client`.
 TvClientIdentity testClient([String name = 'client']) =>
     TvClientIdentity.fromPem(testIdentity(name).certificatePem + testIdentity(name).privateKeyPem);

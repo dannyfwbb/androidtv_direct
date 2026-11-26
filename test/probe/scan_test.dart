@@ -41,7 +41,7 @@ void main() {
     var running = 0;
     var most = 0;
     final tried = <Object>[];
-    Future<TvIdentity> identify(Object host) async {
+    Future<TvIdentity> identify(Object host, Future<void> cancelOn) async {
       tried.add(host);
       most = ++running > most ? running : most;
       await Future<void>.delayed(const Duration(milliseconds: 5));
@@ -56,7 +56,7 @@ void main() {
 
   test('pausing stops new probes; resuming goes on; cancelling stops without results', () async {
     final tried = <Object>[];
-    Future<TvIdentity> identify(Object host) async {
+    Future<TvIdentity> identify(Object host, Future<void> cancelOn) async {
       tried.add(host);
       await Future<void>.delayed(const Duration(milliseconds: 5));
       throw const TvUnreachableException('nobody');
@@ -77,13 +77,53 @@ void main() {
     expect(tried.length, atCancel);
   });
 
+  test('cancelling the scan stops the probes still running', () async {
+    final stopped = <Object>[];
+    Future<TvIdentity> identify(Object host, Future<void> cancelOn) async {
+      await cancelOn;
+      stopped.add(host);
+      throw const TvCancelledException('cancelled');
+    }
+
+    final subscription = scanHosts(List.generate(10, (i) => i), concurrency: 3, identify: identify).listen((_) {});
+    await Future<void>.delayed(Duration.zero);
+    await subscription.cancel();
+    await until(() => stopped.length == 3);
+    expect(stopped, [0, 1, 2]);
+  });
+
+  test('a real scan cancelled while TVs hold the handshake ends its connections at once', () async {
+    final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    final held = <Socket>[];
+    final closed = <Future<void>>[];
+    server.listen((socket) {
+      held.add(socket);
+      closed.add(socket.drain<void>().catchError((_) {}));
+    });
+    addTearDown(() async {
+      for (final socket in held) {
+        socket.destroy();
+      }
+      await server.close();
+    });
+    final subscription = TvProbe.scan(
+      List.filled(4, InternetAddress.loopbackIPv4),
+      port: server.port,
+      timeout: const Duration(seconds: 30),
+      identity: testClient(),
+    ).listen((_) {});
+    await until(() => held.length == 4);
+    await subscription.cancel();
+    await Future.wait(closed).timeout(const Duration(seconds: 5));
+  });
+
   test('an error from the host list is reported and ends the scan', () async {
     Iterable<Object> hosts() sync* {
       yield 'a';
       throw StateError('broken list');
     }
 
-    final scan = scanHosts(hosts(), concurrency: 2, identify: (_) async => throw const TvUnreachableException('x'));
+    final scan = scanHosts(hosts(), concurrency: 2, identify: (_, _) async => throw const TvUnreachableException('x'));
     await expectLater(scan, emitsInOrder([emitsError(isStateError), emitsDone]));
   });
 
@@ -91,7 +131,7 @@ void main() {
     final results = await scanHosts(
       [1, 2],
       concurrency: 2,
-      identify: (_) async => throw ArgumentError('bad host'),
+      identify: (_, _) async => throw ArgumentError('bad host'),
     ).toList();
     expect(results, isEmpty);
   });

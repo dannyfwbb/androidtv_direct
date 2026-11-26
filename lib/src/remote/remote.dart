@@ -176,8 +176,8 @@ final class TvRemote {
   bool get _voiceBusy => _voiceStarting || (_voice != null && !_voice!.isDone);
 
   /// The text field that has the focus on the TV, or `null`. Always `null` without [TvFeature.ime] (TVs report text
-  /// fields only to sessions with it); typing also needs [TvFeature.key].
-  TvTextField? get textField => features.contains(TvFeature.ime) ? _text.current : null;
+  /// fields only to sessions with it) and once the session has ended; typing also needs [TvFeature.key].
+  TvTextField? get textField => features.contains(TvFeature.ime) && !isClosed ? _text.current : null;
 
   /// The focused text field each time the focus changes: a new [TvTextField], or `null` when no field has the focus.
   /// Delivered asynchronously: a field may have stopped again by the time it arrives (check [TvTextField.isFocused]).

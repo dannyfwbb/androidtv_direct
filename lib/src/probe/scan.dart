@@ -22,30 +22,31 @@ final class TvScanResult {
   String toString() => 'TvScanResult($host, $tv)';
 }
 
+/// Probes [host], giving up when [cancelOn] completes.
+typedef Identify = Future<TvIdentity> Function(Object host, Future<void> cancelOn);
+
 /// Runs [identify] on every host of [hosts], at most [concurrency] at a time, and emits the ones that answer as a
-/// TV's remote service, in the order they answer. Pausing the subscription stops new probes; cancelling lets running
-/// ones finish, without results. An error from [hosts] itself is reported and ends the scan.
-Stream<TvScanResult> scanHosts(
-  Iterable<Object> hosts, {
-  required int concurrency,
-  required Future<TvIdentity> Function(Object host) identify,
-}) {
+/// TV's remote service, in the order they answer. Pausing the subscription stops new probes; cancelling stops the
+/// running ones too. An error from [hosts] itself is reported and ends the scan.
+Stream<TvScanResult> scanHosts(Iterable<Object> hosts, {required int concurrency, required Identify identify}) {
   if (concurrency < 1) throw ArgumentError.value(concurrency, 'concurrency', 'must be at least 1');
   return _Scan(hosts.iterator, concurrency, identify).results;
 }
 
 final class _Scan {
   _Scan(this._pending, this._concurrency, this._identify) {
-    _controller = StreamController(onListen: _next, onResume: _next, onCancel: () => _cancelled = true);
+    _controller = StreamController(onListen: _next, onResume: _next, onCancel: _cancel.complete);
   }
 
   final Iterator<Object> _pending;
   final int _concurrency;
-  final Future<TvIdentity> Function(Object host) _identify;
+  final Identify _identify;
+  final Completer<void> _cancel = Completer();
   late final StreamController<TvScanResult> _controller;
   int _running = 0;
-  bool _cancelled = false;
   bool _exhausted = false;
+
+  bool get _cancelled => _cancel.isCompleted;
 
   Stream<TvScanResult> get results => _controller.stream;
 
@@ -77,7 +78,7 @@ final class _Scan {
   Future<void> _probe(Object host) async {
     TvIdentity? tv;
     try {
-      tv = await _identify(host);
+      tv = await _identify(host, _cancel.future);
     } on Object {
       // Nothing there, something else there, or a bad host (an ArgumentError): not a result, and never one that
       // leaves the scan waiting for this probe.

@@ -60,8 +60,8 @@ abstract final class TvProbe {
   /// Probes many hosts, for a scan: at most [concurrency] connections at once, each limited by [timeout]. Emits the
   /// hosts that answer as a TV's remote service (a certificate made by it), in the order they answer; hosts that do
   /// not answer, refuse or speak something else are left out. Nothing appears on the TVs. Which hosts to try (a
-  /// subnet, a list) is the caller's policy. Pausing the subscription stops new probes; cancelling lets running ones
-  /// finish.
+  /// subnet, a list) is the caller's policy. Pausing the subscription stops new probes; cancelling it stops the
+  /// running ones too.
   static Stream<TvScanResult> scan(
     Iterable<Object> hosts, {
     int port = TvPairing.defaultPort,
@@ -73,6 +73,7 @@ abstract final class TvProbe {
   }) => scanHosts(
     hosts,
     concurrency: concurrency,
-    identify: (host) => identify(host, port: port, identity: identity, timeout: timeout, clock: clock, now: now),
+    identify: (host, cancelOn) =>
+        identify(host, port: port, identity: identity, timeout: timeout, clock: clock, now: now, cancelOn: cancelOn),
   );
 }

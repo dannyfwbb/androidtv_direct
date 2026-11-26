@@ -17,7 +17,6 @@ import '../support/wait.dart';
 
 void main() {
   final identity = testClient();
-  final tvFingerprint = TvIdentity.fromCertificate(pemOf(testIdentity('tv').certificatePem)).fingerprint;
 
   Future<(FakeTv, FakePairing)> fakeTv([FakePairing? pairing]) async {
     final fake = pairing ?? FakePairing();
@@ -135,8 +134,9 @@ void main() {
     final pairing = await start(tv);
     final outcome = pairing.finish(await fake.code.future);
     await until(() => fake.reached == PairingStep.secret);
+    final cancelled = expectLater(outcome, throwsA(isA<TvCancelledException>()));
     await pairing.cancel();
-    await expectLater(outcome, throwsA(isA<TvCancelledException>()));
+    await cancelled;
   });
 
   test('a second finish while one runs is a state error', () async {
@@ -145,8 +145,9 @@ void main() {
     final code = await fake.code.future;
     final first = pairing.finish(code);
     expect(() => pairing.finish(code), throwsStateError);
+    final cancelled = expectLater(first, throwsA(isA<TvCancelledException>()));
     await pairing.cancel();
-    await expectLater(first, throwsA(isA<TvCancelledException>()));
+    await cancelled;
   });
 
   test('cancelOn stops a start that waits for the TV', () async {

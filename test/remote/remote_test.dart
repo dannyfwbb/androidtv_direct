@@ -20,7 +20,6 @@ import '../support/wait.dart';
 void main() {
   final recordedApp =
       (RemoteEnvelope.fromTv(sessionMessage('focusReport', outgoing: false)) as FocusReport).app!.packageName;
-  final tvFingerprint = TvIdentity.fromCertificate(pemOf(testIdentity('tv').certificatePem)).fingerprint;
 
   Future<(FakeTv, FakeSession)> fakeTv([FakeSession? session]) async {
     final fake = session ?? FakeSession();

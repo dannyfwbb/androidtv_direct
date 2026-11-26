@@ -27,6 +27,24 @@ void main() {
 
   Future<FakeTv> fakeTv(FakeTvHandler onRemote) => startFakeTv(onRemote: onRemote);
 
+  /// A server that accepts TCP and never answers TLS; [closed] completes per connection when the client ends it.
+  Future<({int port, List<Future<void>> closed})> holdingServer() async {
+    final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    final held = <Socket>[];
+    final closed = <Future<void>>[];
+    server.listen((socket) {
+      held.add(socket);
+      closed.add(socket.drain<void>().catchError((_) {}));
+    });
+    addTearDown(() async {
+      for (final socket in held) {
+        socket.destroy();
+      }
+      await server.close();
+    });
+    return (port: server.port, closed: closed);
+  }
+
   test('a frame over the limit ends the connection as a protocol error', () async {
     final tv = await fakeTv((c) async {
       c
@@ -79,16 +97,8 @@ void main() {
     }
   });
 
-  test('a TV that accepts TCP but never finishes TLS times out, and is not called unreachable', () async {
-    final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
-    final held = <Socket>[];
-    server.listen(held.add);
-    addTearDown(() async {
-      for (final socket in held) {
-        socket.destroy();
-      }
-      await server.close();
-    });
+  test('a TV that accepts TCP but never finishes TLS times out, is not called unreachable, and is let go', () async {
+    final server = await holdingServer();
     final clock = FakeClock();
     final outcome = TvSocket.connect(
       InternetAddress.loopbackIPv4,
@@ -97,10 +107,11 @@ void main() {
       timeout: const Duration(seconds: 5),
       clock: clock,
     );
-    await until(() => held.isNotEmpty && clock.pendingTimers > 0);
+    await until(() => server.closed.isNotEmpty && clock.pendingTimers > 0);
     await Future<void>.delayed(const Duration(milliseconds: 20));
     clock.advance(const Duration(seconds: 5));
     await expectLater(outcome, throwsA(isA<TvTimeoutException>()));
+    await server.closed.single.timeout(const Duration(seconds: 5));
   });
 
   group('receive', () {
@@ -200,16 +211,8 @@ void main() {
       );
     });
 
-    test('cancelling during the TLS handshake stops it with TvCancelledException', () async {
-      final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
-      final held = <Socket>[];
-      server.listen(held.add);
-      addTearDown(() async {
-        for (final socket in held) {
-          socket.destroy();
-        }
-        await server.close();
-      });
+    test('cancelling during the TLS handshake stops it with TvCancelledException and ends the connection', () async {
+      final server = await holdingServer();
       final cancel = Completer<void>();
       final outcome = TvSocket.connect(
         InternetAddress.loopbackIPv4,
@@ -218,9 +221,10 @@ void main() {
         timeout: const Duration(seconds: 30),
         cancelOn: cancel.future,
       );
-      await until(() => held.isNotEmpty);
+      await until(() => server.closed.isNotEmpty);
       cancel.complete();
       await expectLater(outcome.timeout(const Duration(seconds: 5)), throwsA(isA<TvCancelledException>()));
+      await server.closed.single.timeout(const Duration(seconds: 5));
     });
 
     test('a cancellation after the connection opened changes nothing', () async {
