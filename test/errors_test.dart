@@ -14,7 +14,7 @@ void main() {
     const TvPairingRefusedException('m', status: 402),
     const TvLinkRefusedException('m', link: 'x', refusalCode: 7),
     const TvOutdatedServiceException('m'),
-    const TvNotSupportedException('m', feature: 'voice'),
+    const TvNotSupportedException('m', feature: TvFeature.voice),
     const TvTimeoutException('m'),
     const TvClosedException('m'),
     const TvProtocolException('m'),

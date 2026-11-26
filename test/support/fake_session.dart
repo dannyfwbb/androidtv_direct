@@ -106,9 +106,9 @@ final class FakeSession {
       case KeyMessage(:final code, :final action) when answerVolumeKeys && action != KeyAction.release:
         _volumeKey(c, code);
       case OpenLinkMessage(:final link) when link == null || !link.contains(':'):
-        return _refuse(c, 7, bytes);
+        return _refuse(c, RefusalCode.cannotAct, bytes);
       case UnknownEnvelope():
-        return _refuse(c, 5, bytes);
+        return _refuse(c, RefusalCode.unknownMessage, bytes);
       default:
     }
     return true;
@@ -126,7 +126,7 @@ final class FakeSession {
   }
 
   /// Refuses a message as the TV does: a refusal echoing it, then the connection closes.
-  Future<bool> _refuse(FakeTvConnection c, int code, List<int> bytes) async {
+  Future<bool> _refuse(FakeTvConnection c, RefusalCode code, List<int> bytes) async {
     send(c, RefusalMessage(code: code, refused: Uint8List.fromList(bytes)).encodeEnvelope());
     await c.close();
     return false;

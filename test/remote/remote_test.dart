@@ -217,13 +217,13 @@ void main() {
 
     test('a refusal of something else than a link ends the session as a protocol error', () async {
       final refused = KeyMessage(code: 0, action: KeyAction.short).encodeEnvelope();
-      await fake.sendMessage(RefusalMessage(code: 3, refused: refused));
+      await fake.sendMessage(RefusalMessage(code: const RefusalCode(3), refused: refused));
       expect(await remote.done, isA<TvProtocolException>());
     });
 
     test('a refusal with a malformed echo, or a malformed message, is a protocol error', () async {
       final changes = remote.changes.toList();
-      await fake.sendMessage(RefusalMessage(code: 7, refused: Uint8List.fromList([0x0b])));
+      await fake.sendMessage(RefusalMessage(code: RefusalCode.cannotAct, refused: Uint8List.fromList([0x0b])));
       expect(await remote.done, isA<TvProtocolException>());
       expect(await changes, isEmpty, reason: 'the changes stream closes with the session');
     });

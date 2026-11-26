@@ -21,7 +21,7 @@ enum TvKeyAction {
   const TvKeyAction(this.value);
 
   /// The value on the wire.
-  final int value;
+  final KeyAction value;
 }
 
 /// The lowest key code the package sends (0 is "unknown key").

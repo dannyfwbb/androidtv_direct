@@ -31,11 +31,14 @@ typedef ReceivedMessage = ({RemoteEnvelope message, Uint8List bytes});
 /// One remote session's protocol: answers the TV's setup, activation and pings, keeps the state its reports give,
 /// watches for silence and ends once, with a reason.
 final class RemoteSession {
-  /// A session over [_socket] that asks for the feature bits [_wanted].
-  RemoteSession(this._socket, {required int wanted, required TvClock clock, required Duration idleTimeout})
-    : _wanted = wanted,
+  /// A session over [_socket] that asks for [_wanted] (pings and power are always asked for).
+  RemoteSession(this._socket, Set<TvFeature> wanted, {required TvClock clock, required Duration idleTimeout})
+    : _wanted = TvFeature.maskOf({...wanted, TvFeature.power}),
       _clock = clock,
       _idleTimeout = idleTimeout;
+
+  /// What a call after [close] throws.
+  static const TvCancelledException closedError = TvCancelledException('The session was closed');
 
   final TvSocket _socket;
   final int _wanted;
@@ -49,46 +52,37 @@ final class RemoteSession {
   Watchdog? _watchdog;
   bool _heardFromTv = false;
   TvRemoteException? _endReason;
+  TvDevice _device = const TvDevice();
+  Set<TvFeature> _granted = const {};
+  TvState _state = const TvState();
+
+  /// The focused text field, as the TV's reports describe it.
+  final FieldTracker field = FieldTracker();
 
   /// The TV, from its setup.
-  TvDevice device = const TvDevice();
+  TvDevice get device => _device;
 
-  /// The feature bits both sides agreed on.
-  int granted = 0;
+  /// The features both sides agreed on.
+  Set<TvFeature> get granted => _granted;
+
+  /// The latest state.
+  TvState get state => _state;
 
   /// The session's clock.
   TvClock get clock => _clock;
 
-  /// Throws [TvNotSupportedException] unless the session has [feature], and what ended the session once it has ended.
-  void require(TvFeature feature) {
-    throwIfEnded();
-    if (granted & feature.bit == 0) {
-      throw TvNotSupportedException('The session does not have ${feature.name}', feature: feature.name);
-    }
-  }
-
-  /// Throws what ended the session, once it has ended.
-  void throwIfEnded() {
-    if (_done.isCompleted) throw _endReason ?? _closed;
-  }
-
-  /// Counts `setVolume` calls, so a newer one can stop an older one.
-  int volumeCalls = 0;
-
-  /// The latest state.
-  TvState state = const TvState();
-
   /// Every state change.
   Stream<TvState> get changes => _changes.stream;
-
-  /// The focused text field, as the TV's reports describe it.
-  final FieldTracker field = FieldTracker();
 
   /// What each report changed about the focused field, as it is applied.
   Stream<FieldEvent> get fieldEvents => _fieldEvents.stream;
 
   /// Every message from the TV, with its bytes.
   Stream<ReceivedMessage> get messages => _messages.stream;
+
+  /// Every message of type [T] from the TV.
+  Stream<T> messagesOf<T extends RemoteEnvelope>() =>
+      messages.map((received) => received.message).where((message) => message is T).cast<T>();
 
   /// Completes once: `null` after [close], otherwise why the session ended.
   Future<TvRemoteException?> get done => _done.future;
@@ -114,10 +108,34 @@ final class RemoteSession {
       rethrow;
     }
     // The connection may have ended between the power report and this point.
-    if (isClosed) throw _endReason ?? _closed;
+    throwIfEnded();
     _watchdog = Watchdog(_clock, _idleTimeout, () {
       _end(TvTimeoutException('No message in either direction for $_idleTimeout'));
     });
+  }
+
+  /// The first event of [events] that [test] accepts, within [timeout] ([onTimeout] makes the error then). Throws
+  /// what ended the session if it ends first.
+  Future<T> next<T>(
+    Stream<T> events,
+    bool Function(T event) test, {
+    required Duration timeout,
+    required TvRemoteException Function() onTimeout,
+  }) {
+    final ended = done.then<T>((reason) => throw reason ?? closedError);
+    return _clock.deadline(Future.any([events.firstWhere(test), ended]), timeout, onTimeout);
+  }
+
+  /// Throws [TvNotSupportedException] unless the session has [feature], and what ended the session once it has ended.
+  void require(TvFeature feature) {
+    throwIfEnded();
+    if (_granted.contains(feature)) return;
+    throw TvNotSupportedException('The session does not have ${feature.name}', feature: feature);
+  }
+
+  /// Throws what ended the session, once it has ended.
+  void throwIfEnded() {
+    if (isClosed) throw _endReason ?? closedError;
   }
 
   /// Sends [message]. Throws what ended the session once it has ended.
@@ -135,8 +153,6 @@ final class RemoteSession {
     _end(null);
     await _socket.close();
   }
-
-  static const TvCancelledException _closed = TvCancelledException('The session was closed');
 
   void _onFrame(Uint8List bytes) {
     if (isClosed) return;
@@ -157,11 +173,12 @@ final class RemoteSession {
   void _handle(RemoteEnvelope message) {
     switch (message) {
       case SetupMessage(:final features, device: final info):
-        device = TvDevice.fromInfo(info);
-        granted = _wanted & (features ?? 0);
-        send(SetupMessage(features: granted, device: clientDevice));
+        _device = TvDevice.fromInfo(info);
+        final mask = _wanted & (features ?? 0);
+        _granted = TvFeature.fromMask(mask);
+        send(SetupMessage(features: mask, device: clientDevice));
       case ActivateMessage():
-        send(ActivateMessage(features: granted));
+        send(ActivateMessage(features: TvFeature.maskOf(_granted)));
       case PingMessage(:final id):
         send(PongMessage(id: id));
       case RefusalMessage():
@@ -174,9 +191,9 @@ final class RemoteSession {
   void _report(RemoteEnvelope message) {
     final event = field.apply(message);
     if (event != null) _fieldEvents.add(event);
-    final next = state.apply(message);
-    if (!identical(next, state)) {
-      state = next;
+    final next = _state.apply(message);
+    if (!identical(next, _state)) {
+      _state = next;
       _changes.add(next);
     }
     if (message is PowerReport && !_ready.isCompleted) _ready.complete();
@@ -218,7 +235,7 @@ final class RemoteSession {
     _endReason = reason;
     _watchdog?.cancel();
     _done.complete(reason);
-    if (!_ready.isCompleted) _ready.completeError(reason ?? _closed);
+    if (!_ready.isCompleted) _ready.completeError(reason ?? closedError);
     _ready.future.ignore();
     unawaited(_changes.close());
     unawaited(_messages.close());

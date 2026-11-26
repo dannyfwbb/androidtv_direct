@@ -168,10 +168,10 @@ final class KeyboardReport extends RemoteEnvelope {
     ..optionalVarint(2, fieldRevision);
 }
 
-/// Values of [TextChange.kind].
-abstract final class TextChangeKind {
+/// What a [TextChange] does.
+extension type const TextChangeKind(int value) implements int {
   /// Insert the text at the cursor.
-  static const int insert = 1;
+  static const TextChangeKind insert = TextChangeKind(1);
 }
 
 /// Client → TV: change the focused field's text (field 21).
@@ -225,14 +225,14 @@ final class TextChange extends ProtoMessage {
   factory TextChange.decode(Uint8List bytes) {
     final fields = ProtoFields.read(bytes);
     return TextChange(
-      kind: fields.integer(1),
+      kind: fields.integer(1) as TextChangeKind?,
       replacement: fields.message(2, TextReplacement.decode),
       unknownFields: fields.unknown,
     );
   }
 
-  /// What to do; see [TextChangeKind].
-  final int? kind;
+  /// What to do.
+  final TextChangeKind? kind;
 
   /// The text and where it goes.
   final TextReplacement? replacement;

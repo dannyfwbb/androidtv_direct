@@ -85,7 +85,7 @@ void main() {
 
     test('a refusal carries its code and the refused link', () {
       final refusal = fromTv<RefusalMessage>('refusal');
-      expect(refusal.code, RefusalMessage.linkRefused);
+      expect(refusal.code, RefusalCode.cannotAct);
       expect((refusal.refusedMessage! as OpenLinkMessage).link, 'com.android.tv.settings');
     });
 

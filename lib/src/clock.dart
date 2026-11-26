@@ -64,3 +64,6 @@ extension TvClockWaits on TvClock {
     return done.future.whenComplete(timer.cancel);
   }
 }
+
+/// The shorter of [a] and [b].
+Duration shorter(Duration a, Duration b) => a < b ? a : b;

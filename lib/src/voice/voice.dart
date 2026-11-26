@@ -20,47 +20,45 @@ Future<TvVoiceSession> startVoiceSession(RemoteSession session, {required Durati
   session
     ..require(TvFeature.voice)
     ..require(TvFeature.key);
-  final opened = Completer<VoiceOpenMessage>();
-  final subscription = _onVoiceOpen(session, (open) {
-    if (!opened.isCompleted) opened.complete(open);
-  });
-  final timer = session.clock.timer(timeout, () {
-    if (opened.isCompleted) return;
-    opened.completeError(TvTimeoutException('The TV did not open a voice session within $timeout'));
-    _closeLateOpen(session, after: timeout);
-  });
+  sendKey(session, TvKey.search.code, TvKeyAction.press);
   try {
-    sendKey(session, TvKey.search.code, TvKeyAction.press);
-    await Future.any([opened.future, session.done]);
-    session.throwIfEnded();
-    final open = await opened.future;
+    final open = await _nextVoiceOpen(session, timeout);
     final voiceId = open.voiceId ?? 0;
     session.send(VoiceOpenMessage(voiceId: voiceId));
     return TvVoiceSession._(session, voiceId, pace: pace);
-  } finally {
-    timer.cancel();
-    await subscription.cancel();
+  } on TvTimeoutException {
+    _closeLateOpen(session, within: timeout);
+    rethrow;
   }
 }
 
-StreamSubscription<ReceivedMessage> _onVoiceOpen(RemoteSession session, void Function(VoiceOpenMessage) handle) =>
-    session.messages.listen((received) {
-      final message = received.message;
-      if (message is VoiceOpenMessage) handle(message);
-    });
+Future<VoiceOpenMessage> _nextVoiceOpen(RemoteSession session, Duration timeout) => session.next(
+  session.messagesOf<VoiceOpenMessage>(),
+  (_) => true,
+  timeout: timeout,
+  onTimeout: () => TvTimeoutException('The TV did not open a voice session within $timeout'),
+);
 
-/// Closes a voice session the TV opens within [after] past a timeout.
-void _closeLateOpen(RemoteSession session, {required Duration after}) {
-  late final StreamSubscription<ReceivedMessage> late;
-  final timer = session.clock.timer(after, () => unawaited(late.cancel()));
-  late = _onVoiceOpen(session, (open) {
-    timer.cancel();
-    unawaited(late.cancel());
-    if (!session.isClosed) session.send(VoiceCloseMessage(voiceId: open.voiceId));
-  });
+/// Closes a voice session the TV opens [within] a timeout after the client stopped waiting.
+void _closeLateOpen(RemoteSession session, {required Duration within}) =>
+    _nextVoiceOpen(session, within).then((open) => session.send(VoiceCloseMessage(voiceId: open.voiceId))).ignore();
+
+enum _State {
+  /// Audio is taken.
+  open,
+
+  /// [TvVoiceSession.close] is sending what is left.
+  closing,
+
+  /// This side ended the session.
+  closed,
+
+  /// The TV ended the session first.
+  endedByTv,
+
+  /// The remote session ended.
+  failed,
 }
-
-enum _State { open, closing, ended }
 
 /// A voice session: audio from the app's microphone, sent to the TV's voice search.
 ///
@@ -70,11 +68,11 @@ enum _State { open, closing, ended }
 /// search finished or gave up): audio added after that is dropped, and [close] does nothing.
 final class TvVoiceSession {
   TvVoiceSession._(this._session, this.voiceId, {required bool pace}) : _pace = pace {
-    _session.done.then((reason) => _fail(reason ?? const TvCancelledException('The session was closed'))).ignore();
-    _endedByTv = _session.messages.listen((received) {
-      final message = received.message;
-      if (message is VoiceEndedMessage && message.voiceId == voiceId) _onEndedByTv();
-    });
+    _session.done.then((reason) => _fail(reason ?? RemoteSession.closedError)).ignore();
+    _endedByTv = _session
+        .messagesOf<VoiceEndedMessage>()
+        .where((ended) => ended.voiceId == voiceId)
+        .listen((_) => _onEndedByTv());
   }
 
   /// The bytes of one chunk.
@@ -95,9 +93,8 @@ final class TvVoiceSession {
   final bool _pace;
   final ChunkQueue _audio = ChunkQueue(chunkBytes);
   final Completer<void> _done = Completer();
-  late final StreamSubscription<ReceivedMessage> _endedByTv;
+  late final StreamSubscription<VoiceEndedMessage> _endedByTv;
   _State _state = _State.open;
-  bool _endedByTvFirst = false;
   Object? _error;
   Timer? _paceTimer;
   Timer? _confirmTimer;
@@ -107,7 +104,7 @@ final class TvVoiceSession {
   final int voiceId;
 
   /// Whether audio can still be added.
-  bool get isOpen => _state == _State.open && _error == null;
+  bool get isOpen => _state == _State.open;
 
   /// Whether [done] has completed: the TV can take a new voice session.
   bool get isDone => _done.isCompleted;
@@ -117,19 +114,27 @@ final class TvVoiceSession {
   /// session, if that came first.
   Future<void> get done => _done.future;
 
+  bool get _sending => _state == _State.open || _state == _State.closing;
+
   /// Adds [pcm] (16-bit little-endian, mono, 8 kHz). Completes once the audio is buffered; waits while more than
   /// [maxBufferedBytes] are waiting to go out. Audio added after the TV ended the session is dropped. Throws
   /// [StateError] after [close] or [cancel], and what ended the remote session.
   Future<void> add(List<int> pcm) async {
-    _throwIfFailed();
-    if (_endedByTvFirst) return;
-    if (_state != _State.open) throw StateError('The voice session was closed');
-    _audio.add(pcm);
-    _pump();
-    while (_audio.length > maxBufferedBytes && _state == _State.open && _error == null) {
-      await _waitForRoom();
+    switch (_state) {
+      case _State.failed:
+        throw _error!;
+      case _State.endedByTv:
+        return;
+      case _State.closing || _State.closed:
+        throw StateError('The voice session was closed');
+      case _State.open:
+        _audio.add(pcm);
+        _pump();
+        while (_state == _State.open && _audio.length > maxBufferedBytes) {
+          await _waitForRoom();
+        }
+        if (_state == _State.failed) throw _error!;
     }
-    _throwIfFailed();
   }
 
   /// Adds every chunk of [audio], in order.
@@ -142,37 +147,34 @@ final class TvVoiceSession {
   /// Sends the audio left, the last chunk padded with silence, ends the session and waits for [done]. Does nothing
   /// more once the session is ending or has ended. Throws what ended the remote session if it ends first.
   Future<void> close() async {
-    _throwIfFailed();
-    if (_state == _State.open) {
-      _state = _State.closing;
-      _audio.padLast();
-      while (_audio.hasChunk && _state == _State.closing && _error == null) {
-        _pump();
-        if (_audio.hasChunk) await _waitForRoom();
-      }
-      if (_state == _State.closing) _sendClose();
-    }
+    if (_state == _State.open) await _sendRest();
+    if (_state == _State.closing) _sendClose();
     await done;
   }
 
   /// Drops the audio not sent yet and ends the voice session now. Does nothing once it has ended.
   void cancel() {
-    if (_state == _State.ended || _error != null) return;
+    if (!_sending) return;
     _audio.clear();
     _sendClose();
   }
 
-  void _throwIfFailed() {
-    if (_error != null) throw _error!;
+  Future<void> _sendRest() async {
+    _state = _State.closing;
+    _audio.padLast();
+    while (_state == _State.closing && _audio.hasChunk) {
+      _pump();
+      if (_audio.hasChunk) await _waitForRoom();
+    }
   }
 
   /// Sends whole chunks: all of them without pacing, otherwise one now and the next when its time comes.
   void _pump() {
-    while (_paceTimer == null && _audio.hasChunk && _state != _State.ended && _error == null) {
+    while (_sending && _paceTimer == null && _audio.hasChunk) {
       _session.send(VoiceAudioMessage(voiceId: voiceId, samples: _audio.take()));
       if (_pace) _paceTimer = _session.clock.timer(_chunkDuration, _onPaced);
     }
-    if (_audio.length <= maxBufferedBytes || _state != _State.open) _wake();
+    if (_state != _State.open || _audio.length <= maxBufferedBytes) _wake();
   }
 
   void _onPaced() {
@@ -189,37 +191,37 @@ final class TvVoiceSession {
   }
 
   void _sendClose() {
-    _state = _State.ended;
+    _state = _State.closed;
     _paceTimer?.cancel();
     if (!_session.isClosed) _session.send(VoiceCloseMessage(voiceId: voiceId));
-    _confirmTimer = _session.clock.timer(endConfirmation, () => _finish(null));
+    _confirmTimer = _session.clock.timer(endConfirmation, _finish);
     _wake();
   }
 
   void _onEndedByTv() {
-    if (_state != _State.ended) _endedByTvFirst = true;
-    _state = _State.ended;
+    if (_sending) _state = _State.endedByTv;
     _audio.clear();
-    _finish(null);
+    _finish();
   }
 
   void _fail(Object error) {
     if (_done.isCompleted) return;
+    _state = _State.failed;
     _error = error;
-    _finish(error);
+    _finish();
   }
 
-  void _finish(Object? error) {
+  void _finish() {
     _paceTimer?.cancel();
     _confirmTimer?.cancel();
     _wake();
     unawaited(_endedByTv.cancel());
     if (_done.isCompleted) return;
-    if (error == null) {
-      _done.complete();
-    } else {
-      _done.completeError(error);
+    if (_state == _State.failed) {
+      _done.completeError(_error!);
       _done.future.ignore();
+    } else {
+      _done.complete();
     }
   }
 }

@@ -3,33 +3,6 @@
 
 part of 'remote_messages.dart';
 
-/// Feature bits of [SetupMessage.features] and [ActivateMessage.features].
-abstract final class RemoteFeature {
-  /// Pings and pongs.
-  static const int ping = 1;
-
-  /// Key presses.
-  static const int key = 2;
-
-  /// Text input: focus, keyboard and field reports, text edits.
-  static const int ime = 4;
-
-  /// Voice sessions.
-  static const int voice = 8;
-
-  /// A bit TVs offer and clients ask for, with no known meaning.
-  static const int unknown16 = 16;
-
-  /// Power reports.
-  static const int power = 32;
-
-  /// Volume reports.
-  static const int volume = 64;
-
-  /// App links.
-  static const int appLink = 512;
-}
-
 /// Both directions: the features and the device (field 1). The TV sends it first; the client answers with the
 /// features it wants.
 final class SetupMessage extends RemoteEnvelope {
@@ -50,7 +23,7 @@ final class SetupMessage extends RemoteEnvelope {
   /// Its envelope field.
   static const int fieldNumber = 1;
 
-  /// Feature bits; see [RemoteFeature].
+  /// Feature bits (`TvFeature.maskOf`).
   final int? features;
 
   /// The sending device.
@@ -126,11 +99,20 @@ final class ActivateMessage extends RemoteEnvelope {
   /// Its envelope field.
   static const int fieldNumber = 2;
 
-  /// Feature bits; see [RemoteFeature].
+  /// Feature bits (`TvFeature.maskOf`).
   final int? features;
 
   @override
   void writeFields(ProtoWriter writer) => writer.optionalVarint(1, features);
+}
+
+/// Why the TV refused a message, in a [RefusalMessage] (codes seen on the Android TV emulator, remote service 7.00).
+extension type const RefusalCode(int value) implements int {
+  /// The TV cannot act on the message: a link it refuses, an empty link, a key without a valid action.
+  static const RefusalCode cannotAct = RefusalCode(7);
+
+  /// The TV does not know the message (its envelope field).
+  static const RefusalCode unknownMessage = RefusalCode(5);
 }
 
 /// TV → client: the TV refused a message (field 3). The TV closes the connection after it.
@@ -142,23 +124,27 @@ final class RefusalMessage extends RemoteEnvelope {
   /// Reads the message.
   factory RefusalMessage.decode(Uint8List bytes) {
     final fields = ProtoFields.read(bytes);
-    return RefusalMessage(code: fields.integer(1), refused: fields.bytes(2), unknownFields: fields.unknown);
+    return RefusalMessage(
+      code: fields.integer(1) as RefusalCode?,
+      refused: fields.bytes(2),
+      unknownFields: fields.unknown,
+    );
   }
 
   /// Its envelope field.
   static const int fieldNumber = 3;
 
-  /// [code] for a refused app link.
-  static const int linkRefused = 7;
-
-  /// Why; 7 for a refused app link, other values not yet seen.
-  final int? code;
+  /// Why.
+  final RefusalCode? code;
 
   /// The refused message, a whole client envelope.
   final Uint8List? refused;
 
   /// [refused] decoded as a client's message, or `null` if absent. Throws [FormatException] if it is malformed.
-  RemoteEnvelope? get refusedMessage => refused == null ? null : RemoteEnvelope.fromClient(refused!);
+  RemoteEnvelope? get refusedMessage => switch (refused) {
+    final bytes? => RemoteEnvelope.fromClient(bytes),
+    null => null,
+  };
 
   @override
   void writeFields(ProtoWriter writer) => writer
@@ -208,16 +194,16 @@ final class PongMessage extends RemoteEnvelope {
   void writeFields(ProtoWriter writer) => writer.optionalVarint(1, id);
 }
 
-/// Values of [KeyMessage.action].
-abstract final class KeyAction {
+/// What happens to a key in a [KeyMessage].
+extension type const KeyAction(int value) implements int {
   /// Key down; the TV repeats the key until [release].
-  static const int press = 1;
+  static const KeyAction press = KeyAction(1);
 
   /// Key up.
-  static const int release = 2;
+  static const KeyAction release = KeyAction(2);
 
   /// Down and up at once.
-  static const int short = 3;
+  static const KeyAction short = KeyAction(3);
 }
 
 /// Client → TV: a key (field 10).
@@ -229,7 +215,7 @@ final class KeyMessage extends RemoteEnvelope {
   /// Reads the message.
   factory KeyMessage.decode(Uint8List bytes) {
     final fields = ProtoFields.read(bytes);
-    return KeyMessage(code: fields.integer(1), action: fields.integer(2), unknownFields: fields.unknown);
+    return KeyMessage(code: fields.integer(1), action: fields.integer(2) as KeyAction?, unknownFields: fields.unknown);
   }
 
   /// Its envelope field.
@@ -238,8 +224,8 @@ final class KeyMessage extends RemoteEnvelope {
   /// The Android key code.
   final int? code;
 
-  /// What happens to the key; see [KeyAction].
-  final int? action;
+  /// What happens to the key.
+  final KeyAction? action;
 
   @override
   void writeFields(ProtoWriter writer) => writer

@@ -1,6 +1,8 @@
 // Copyright 2026 The androidtv_direct authors
 // SPDX-License-Identifier: Apache-2.0
 
+import 'package:androidtv_direct/src/remote/features.dart';
+
 /// Stable identifiers for every way an operation on a TV can fail.
 ///
 /// The names never change meaning. Codes are added only together with a new [TvRemoteException] subclass, in a major
@@ -163,8 +165,8 @@ final class TvNotSupportedException extends TvRemoteException {
   /// Creates the exception.
   const TvNotSupportedException(super.message, {required this.feature, super.cause});
 
-  /// The feature the TV did not offer, by name (`key`, `ime`, `voice`, `appLink`, …).
-  final String feature;
+  /// The feature the session lacks: the TV did not offer it, or the session did not ask for it.
+  final TvFeature feature;
 
   @override
   TvErrorCode get code => TvErrorCode.notSupported;

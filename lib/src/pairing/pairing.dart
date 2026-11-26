@@ -5,6 +5,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:androidtv_direct/src/bytes.dart';
+import 'package:androidtv_direct/src/cancel.dart';
 import 'package:androidtv_direct/src/clock.dart';
 import 'package:androidtv_direct/src/crypto/pairing_secret.dart';
 import 'package:androidtv_direct/src/errors.dart';
@@ -55,24 +56,21 @@ final class TvPairing {
       tracer: tracer,
       cancelOn: cancelOn,
     );
-    var cancelled = false;
-    var started = false;
-    cancelOn?.whenComplete(() {
-      if (started) return;
-      cancelled = true;
-      unawaited(socket.close());
-    }).ignore();
-    try {
-      final channel = PairingChannel(socket);
-      await _askForCode(channel, clientName, timeout);
-      final pairing = TvPairing._(channel, identity, socket.tvIdentity);
-      started = true;
-      return pairing;
-    } on TvRemoteException catch (e) {
-      await socket.close();
-      if (cancelled) throw TvCancelledException('Pairing was cancelled', cause: e);
-      rethrow;
-    }
+    return cancellable(
+      cancelOn,
+      what: 'Pairing',
+      abort: socket.close,
+      body: () async {
+        final channel = PairingChannel(socket);
+        try {
+          await _askForCode(channel, clientName, timeout);
+          return TvPairing._(channel, identity, socket.tvIdentity);
+        } on TvRemoteException {
+          await socket.close();
+          rethrow;
+        }
+      },
+    );
   }
 
   static Future<void> _askForCode(PairingChannel channel, String clientName, Duration timeout) async {

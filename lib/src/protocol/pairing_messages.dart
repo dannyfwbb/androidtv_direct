@@ -17,34 +17,34 @@ import 'package:meta/meta.dart';
 /// The protocol version both sides send.
 const int pairingProtocolVersion = 2;
 
-/// Status values of a [PairingMessage].
-abstract final class PairingStatus {
+/// The status of a [PairingMessage]: a wire value, with the ones the protocol names.
+extension type const PairingStatus(int value) implements int {
   /// Everything is fine.
-  static const int ok = 200;
+  static const PairingStatus ok = PairingStatus(200);
 
   /// A generic error.
-  static const int error = 400;
+  static const PairingStatus error = PairingStatus(400);
 
   /// The TV cannot use the offered configuration.
-  static const int badConfiguration = 401;
+  static const PairingStatus badConfiguration = PairingStatus(401);
 
   /// The secret is not the one the TV expected: the code was wrong.
-  static const int badSecret = 402;
+  static const PairingStatus badSecret = PairingStatus(402);
 }
 
-/// The roles a side can take: who shows the code and who types it in.
-abstract final class PairingRole {
+/// Who shows the code and who types it in.
+extension type const PairingRole(int value) implements int {
   /// Types in the code the other side shows (what clients do).
-  static const int input = 1;
+  static const PairingRole input = PairingRole(1);
 
   /// Shows the code (what TVs do).
-  static const int output = 2;
+  static const PairingRole output = PairingRole(2);
 }
 
 /// How a code is written.
-abstract final class PairingEncodingType {
+extension type const PairingEncodingType(int value) implements int {
   /// Hexadecimal characters, the only encoding TVs have been seen to use.
-  static const int hexadecimal = 3;
+  static const PairingEncodingType hexadecimal = PairingEncodingType(3);
 }
 
 /// The envelope of every pairing message: version, status and at most one inner message.
@@ -66,7 +66,7 @@ final class PairingMessage extends ProtoMessage {
     if (bodies.length > 1) throw const FormatException('Pairing message with two inner messages');
     return PairingMessage(
       version: fields.integer(1),
-      status: fields.integer(2),
+      status: fields.integer(2) as PairingStatus?,
       body: bodies.firstOrNull,
       unknownFields: fields.unknown,
     );
@@ -75,8 +75,8 @@ final class PairingMessage extends ProtoMessage {
   /// The protocol version (field 1).
   final int? version;
 
-  /// The status (field 2); see [PairingStatus].
-  final int? status;
+  /// The status (field 2).
+  final PairingStatus? status;
 
   /// The inner message, or `null` (a status-only answer).
   final PairingBody? body;
@@ -168,7 +168,7 @@ final class PairingRequestAck extends PairingBody {
   void writeFields(ProtoWriter writer) => writer.optionalString(1, serverName);
 }
 
-/// A code format: its [type] (see [PairingEncodingType]) and [symbolLength].
+/// A code format: its [type] and [symbolLength].
 final class PairingEncoding extends ProtoMessage {
   /// Creates the encoding.
   PairingEncoding({this.type, this.symbolLength, Iterable<ProtoField> unknownFields = const []}) : super(unknownFields);
@@ -179,11 +179,15 @@ final class PairingEncoding extends ProtoMessage {
   /// Reads the message.
   factory PairingEncoding.decode(Uint8List bytes) {
     final fields = ProtoFields.read(bytes);
-    return PairingEncoding(type: fields.integer(1), symbolLength: fields.integer(2), unknownFields: fields.unknown);
+    return PairingEncoding(
+      type: fields.integer(1) as PairingEncodingType?,
+      symbolLength: fields.integer(2),
+      unknownFields: fields.unknown,
+    );
   }
 
-  /// The kind of characters; see [PairingEncodingType].
-  final int? type;
+  /// The kind of characters.
+  final PairingEncodingType? type;
 
   /// How many characters the code has.
   final int? symbolLength;
@@ -210,7 +214,7 @@ final class PairingOptions extends PairingBody {
     return PairingOptions(
       inputEncodings: fields.repeated(1, PairingEncoding.decode),
       outputEncodings: fields.repeated(2, PairingEncoding.decode),
-      preferredRole: fields.integer(3),
+      preferredRole: fields.integer(3) as PairingRole?,
       unknownFields: fields.unknown,
     );
   }
@@ -224,8 +228,8 @@ final class PairingOptions extends PairingBody {
   /// Encodings this side can show.
   final List<PairingEncoding> outputEncodings;
 
-  /// The role this side prefers; see [PairingRole].
-  final int? preferredRole;
+  /// The role this side prefers.
+  final PairingRole? preferredRole;
 
   @override
   void writeFields(ProtoWriter writer) => writer
@@ -245,7 +249,7 @@ final class PairingConfiguration extends PairingBody {
     final fields = ProtoFields.read(bytes);
     return PairingConfiguration(
       encoding: fields.message(1, PairingEncoding.decode),
-      clientRole: fields.integer(2),
+      clientRole: fields.integer(2) as PairingRole?,
       unknownFields: fields.unknown,
     );
   }
@@ -256,8 +260,8 @@ final class PairingConfiguration extends PairingBody {
   /// The code's format.
   final PairingEncoding? encoding;
 
-  /// The client's role; see [PairingRole].
-  final int? clientRole;
+  /// The client's role.
+  final PairingRole? clientRole;
 
   @override
   void writeFields(ProtoWriter writer) => writer

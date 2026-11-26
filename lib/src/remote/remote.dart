@@ -4,6 +4,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:androidtv_direct/src/cancel.dart';
 import 'package:androidtv_direct/src/clock.dart';
 import 'package:androidtv_direct/src/errors.dart';
 import 'package:androidtv_direct/src/identity/client_identity.dart';
@@ -14,7 +15,7 @@ import 'package:androidtv_direct/src/remote/features.dart';
 import 'package:androidtv_direct/src/remote/keys.dart';
 import 'package:androidtv_direct/src/remote/session.dart';
 import 'package:androidtv_direct/src/remote/state.dart';
-import 'package:androidtv_direct/src/remote/volume.dart' as volume;
+import 'package:androidtv_direct/src/remote/volume.dart';
 import 'package:androidtv_direct/src/text/text_field.dart';
 import 'package:androidtv_direct/src/trace.dart';
 import 'package:androidtv_direct/src/transport/tv_socket.dart';
@@ -73,19 +74,14 @@ final class TvRemote {
       tracer: tracer,
       cancelOn: cancelOn,
     );
-    final wanted = TvFeature.maskOf({...features, TvFeature.power});
-    final session = RemoteSession(socket, wanted: wanted, clock: clock, idleTimeout: idleTimeout);
-    var started = false;
-    cancelOn?.whenComplete(() {
-      if (!started) unawaited(session.close());
-    }).ignore();
-    await session.start(startTimeout);
-    started = true;
+    final session = RemoteSession(socket, features, clock: clock, idleTimeout: idleTimeout);
+    await cancellable(cancelOn, what: 'Connecting', abort: session.close, body: () => session.start(startTimeout));
     return TvRemote._(session, textGiveUp);
   }
 
   final RemoteSession _session;
   late final KeyHolds _holds = KeyHolds(_session);
+  late final VolumeControl _volume = VolumeControl(_session);
   final TextInput _text;
   TvVoiceSession? _voice;
   bool _voiceStarting = false;
@@ -94,7 +90,7 @@ final class TvRemote {
   TvDevice get device => _session.device;
 
   /// What the session can do: what it asked for and the TV offered.
-  Set<TvFeature> get features => TvFeature.fromMask(_session.granted);
+  Set<TvFeature> get features => _session.granted;
 
   /// The latest of everything the TV reported.
   TvState get state => _session.state;
@@ -146,7 +142,7 @@ final class TvRemote {
     int level, {
     Duration stepTimeout = const Duration(seconds: 2),
     Duration timeout = const Duration(seconds: 15),
-  }) => volume.setVolume(_session, level, stepTimeout: stepTimeout, timeout: timeout);
+  }) => _volume.set(level, stepTimeout: stepTimeout, timeout: timeout);
 
   /// Opens a voice session: presses Search and waits up to [timeout] for the TV's voice search to open it. Feed it the
   /// app's microphone audio (16-bit PCM, mono, 8 kHz) and [TvVoiceSession.close] it when the user stops talking.
