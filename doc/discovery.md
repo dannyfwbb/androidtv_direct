@@ -36,7 +36,7 @@ final sub = TvMdnsBrowser().browse(TvServiceType.all).listen((event) {
 
 `TvProbe.identify(host)` connects to the pairing port, reads the TV's certificate and closes without sending anything; nothing appears on the TV. It gives the model, the network address and the key fingerprint ([identity.md](identity.md)).
 
-`TvProbe.scan(hosts)` probes many hosts, at most `concurrency` (16) at once, each limited by `timeout` (1 s), and emits the hosts that answer as a TV's remote service: a TLS server on the pairing port whose certificate the remote service made. Which hosts to try (a subnet, addresses typed in) is the app's policy, as is whether to accept only private addresses.
+`TvProbe.scan(hosts)` probes many hosts, at most `concurrency` (16) at once, each limited by `timeout` (1 s), and emits the hosts that answer as a TV's remote service: a TLS server on the pairing port whose certificate the remote service made. Which hosts to try (a subnet, addresses typed in) is the app's policy, as is whether to accept only private addresses. Cancelling the subscription ends the probes still running. A TV busy with a pairing does not answer, and a probe then keeps its pairing port busy for a while: do not scan while the app is pairing ([pairing.md](pairing.md)).
 
 ```dart
 final hosts = [for (var i = 1; i < 255; i++) '192.168.0.$i'];
