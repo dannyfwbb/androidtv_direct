@@ -228,7 +228,7 @@ final class _Reader {
       final type = _view.getUint16(_offset);
       final klass = _view.getUint16(_offset + 2);
       _offset += 4;
-      questions.add(DnsQuestion(name, type, unicastResponse: klass & 0x8000 != 0));
+      questions.add(DnsQuestion(name, type, unicastResponse: klass & _topBit != 0));
     }
     final records = <DnsRecord>[];
     for (var i = 0; i < counts[1] + counts[2] + counts[3]; i++) {
@@ -238,7 +238,7 @@ final class _Reader {
     return DnsMessage(id: id, isResponse: flags & 0x8000 != 0, questions: questions, answers: records);
   }
 
-  /// A record, or null for classes other than IN.
+  /// A record, or null for classes other than IN and for addresses of the wrong size.
   DnsRecord? _record() {
     final name = _name();
     _need(10);
@@ -249,35 +249,44 @@ final class _Reader {
     _offset += 10;
     _need(length);
     final end = _offset + length;
-    final DnsData data;
-    switch (type) {
-      case DnsType.ptr:
-        data = DnsPointer(_name());
-      case DnsType.srv:
-        _need(6);
-        final priority = _view.getUint16(_offset);
-        final weight = _view.getUint16(_offset + 2);
-        final port = _view.getUint16(_offset + 4);
-        _offset += 6;
-        data = DnsSrv(priority: priority, weight: weight, port: port, target: _name());
-      case DnsType.txt:
-        data = DnsText(_strings(end));
-      case DnsType.a when length == 4:
-        data = DnsAddress(InternetAddress.fromRawAddress(_bytes.sublist(_offset, end), type: InternetAddressType.IPv4));
-      case DnsType.aaaa when length == 16:
-        data = DnsAddress(InternetAddress.fromRawAddress(_bytes.sublist(_offset, end), type: InternetAddressType.IPv6));
-      case DnsType.a || DnsType.aaaa:
-        // An address of the wrong size: skipped, never stored as one.
-        _offset = end;
-        return null;
-      default:
-        data = DnsRaw(Uint8List.fromList(_bytes.sublist(_offset, end)));
-    }
+    final data = _data(type, end);
     if (_offset > end) throw const FormatException('A record overruns');
     _offset = end;
-    if (klass & 0x7fff != 1) return null;
-    return DnsRecord(name: name, type: type, ttl: ttl, cacheFlush: klass & 0x8000 != 0, data: data);
+    if (data == null || klass & _classMask != _classIn) return null;
+    return DnsRecord(name: name, type: type, ttl: ttl, cacheFlush: klass & _topBit != 0, data: data);
   }
+
+  /// The data of a record of [type] that ends at [end].
+  DnsData? _data(int type, int end) => switch (type) {
+    DnsType.ptr => DnsPointer(_name()),
+    DnsType.srv => _srv(),
+    DnsType.txt => DnsText(_strings(end)),
+    DnsType.a when end - _offset == 4 => _address(end, InternetAddressType.IPv4),
+    DnsType.aaaa when end - _offset == 16 => _address(end, InternetAddressType.IPv6),
+    // An address of the wrong size: skipped, never stored as one.
+    DnsType.a || DnsType.aaaa => null,
+    _ => DnsRaw(Uint8List.fromList(_bytes.sublist(_offset, end))),
+  };
+
+  DnsSrv _srv() {
+    _need(6);
+    final priority = _view.getUint16(_offset);
+    final weight = _view.getUint16(_offset + 2);
+    final port = _view.getUint16(_offset + 4);
+    _offset += 6;
+    return DnsSrv(priority: priority, weight: weight, port: port, target: _name());
+  }
+
+  DnsAddress _address(int end, InternetAddressType type) =>
+      DnsAddress(InternetAddress.fromRawAddress(_bytes.sublist(_offset, end), type: type));
+
+  /// The class IN.
+  static const int _classIn = 1;
+
+  /// The class without its top bit, which means cache-flush in answers and unicast-response in questions (RFC 6762).
+  static const int _classMask = 0x7fff;
+
+  static const int _topBit = 0x8000;
 
   /// TXT character-strings up to [end].
   List<String> _strings(int end) {

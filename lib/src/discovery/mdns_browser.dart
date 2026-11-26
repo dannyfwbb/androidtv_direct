@@ -63,14 +63,22 @@ final class TvMdnsBrowser implements TvServiceBrowser {
     return controller.stream;
   }
 
-  static String _normalType(String type) => fullType(type.toLowerCase().replaceFirst(RegExp(r'\.+$'), ''));
+  static String _normalType(String type) {
+    final name = type.toLowerCase().replaceFirst(_trailingDots, '');
+    return name.endsWith('.local') ? name : '$name.local';
+  }
+
+  static final RegExp _trailingDots = RegExp(r'\.+$');
 }
 
 /// A cached record from one sender.
 final class _Entry {
-  _Entry(this.record, this.received, this.expires, this.from);
+  _Entry(this.record, this.received, this.expires, this.from) : name = record.name.toLowerCase();
 
   final DnsRecord record;
+
+  /// The record's name, lower-case: names compare without case (RFC 6762 16).
+  final String name;
   final Duration received;
   Duration expires;
   final String from;
@@ -84,6 +92,21 @@ final class _Entry {
 /// Bounds against a noisy or hostile network.
 const int _maxEntries = 1024;
 const int _maxTtl = 4500; // 75 minutes, Android's PTR TTL.
+
+/// How often the cache is maintained, and the shortest gap between repeats of a question.
+const Duration _second = Duration(seconds: 1);
+
+/// The longest gap between repeats of a question (RFC 6762 5.2).
+const Duration _maxQuestionGap = Duration(seconds: 60);
+
+/// How long reports wait for the rest of an announcement.
+const Duration _reportDelay = Duration(milliseconds: 100);
+
+/// Maintenance ticks between looks for new interfaces.
+const int _ticksPerInterfaceRefresh = 30;
+
+typedef _CacheKey = ({String name, int type, String data, String sender});
+typedef _Question = ({String name, int type});
 
 final class _Session {
   _Session({
@@ -102,19 +125,19 @@ final class _Session {
   final void Function(TvServiceEvent) emit;
   final void Function(Object) fail;
 
-  /// (lowercase name, type, data key, sender) → entry.
-  final Map<(String, int, String, String), _Entry> _cache = {};
+  /// Lower-case name, type, data and sender → entry.
+  final Map<_CacheKey, _Entry> _cache = {};
 
   /// Lowercase instance full name → service reported.
   final Map<String, TvService> _reported = {};
 
-  /// Question (lowercase name, type) → (when it may be asked again, gap).
-  final Map<(String, int), (Duration, Duration)> _asked = {};
+  /// Question (lower-case name) → when it may be asked again, and the gap that led there.
+  final Map<_Question, ({Duration next, Duration gap})> _asked = {};
 
   Timer? _queryTimer;
   Timer? _tick;
   Timer? _reportTimer;
-  Duration _interval = const Duration(seconds: 1);
+  Duration _interval = _second;
   bool _stopped = false;
   int _ticks = 0;
 
@@ -152,10 +175,10 @@ final class _Session {
   }
 
   void _scheduleTick() {
-    _tick = clock.timer(const Duration(seconds: 1), () {
+    _tick = clock.timer(_second, () {
       if (_stopped) return;
       _maintain();
-      if (++_ticks % 30 == 0) {
+      if (++_ticks % _ticksPerInterfaceRefresh == 0) {
         transport.refreshInterfaces().then((_) {}, onError: _onError).ignore();
       }
       _scheduleTick();
@@ -167,7 +190,7 @@ final class _Session {
     if (_stopped) return;
     _send([for (final t in types) DnsQuestion(t, DnsType.ptr)]);
     final wait = _interval;
-    _interval = _interval * 2 > _cap ? _cap : _interval * 2;
+    _interval = shorter(_interval * 2, _cap);
     _queryTimer = clock.timer(wait, _round);
   }
 
@@ -183,13 +206,11 @@ final class _Session {
   /// A question unless it was asked recently; each repeat waits twice as long, up to a minute (RFC 6762 5.2).
   DnsQuestion? _limited(String name, int type) {
     final now = clock.elapsed;
-    final key = (name.toLowerCase(), type);
-    final (next, gap) = _asked[key] ?? (Duration.zero, Duration.zero);
-    if (now < next) return null;
-    final newGap = gap == Duration.zero
-        ? const Duration(seconds: 1)
-        : (gap * 2 > const Duration(seconds: 60) ? const Duration(seconds: 60) : gap * 2);
-    _asked[key] = (now + newGap, newGap);
+    final key = (name: name.toLowerCase(), type: type);
+    final last = _asked[key];
+    if (last != null && now < last.next) return null;
+    final gap = last == null ? _second : shorter(last.gap * 2, _maxQuestionGap);
+    _asked[key] = (next: now + gap, gap: gap);
     return DnsQuestion(name, type);
   }
 
@@ -238,7 +259,7 @@ final class _Session {
         if (r.data case DnsPointer(:final target) when _isBrowsedPtr(r)) target.toLowerCase(),
     };
     final hosts = {
-      for (final r in [..._cache.values.map((e) => e.record), ...answers])
+      for (final r in [for (final e in _cache.values) e.record, ...answers])
         if (r.data case DnsSrv(:final target) when instances.contains(r.name.toLowerCase())) target.toLowerCase(),
     };
     return (r) => switch (r.type) {
@@ -258,8 +279,7 @@ final class _Session {
     for (final r in answers.where((r) => r.cacheFlush && r.ttl > 0)) {
       final name = r.name.toLowerCase();
       _cache.removeWhere(
-        (key, e) =>
-            key.$1 == name && key.$2 == r.type && e.from == sender && e.received < now - const Duration(seconds: 1),
+        (key, e) => key.name == name && key.type == r.type && key.sender == sender && e.received < now - _second,
       );
     }
     return _cache.length != before;
@@ -270,10 +290,10 @@ final class _Session {
   bool _store(List<DnsRecord> answers, String sender, Duration now) {
     var stored = false;
     for (final r in answers) {
-      final key = (r.name.toLowerCase(), r.type, r.data.key, sender);
+      final key = (name: r.name.toLowerCase(), type: r.type, data: r.data.key, sender: sender);
       if (r.ttl == 0) {
         _cache[key]
-          ?..expires = now + const Duration(seconds: 1)
+          ?..expires = now + _second
           ..refreshes = 2;
         continue;
       }
@@ -299,31 +319,32 @@ final class _Session {
     final now = clock.elapsed;
     final before = _cache.length;
     _cache.removeWhere((_, e) => e.expires <= now);
-    final refresh = <DnsQuestion>[];
-    final asked = <(String, int)>{};
+    _send(_refreshQuestions(now));
+    _send(_missing());
+    if (_cache.length != before) _scheduleReport();
+  }
+
+  /// One question for each name and type with a record due for a refresh; counts the refresh.
+  List<DnsQuestion> _refreshQuestions(Duration now) {
+    final questions = <DnsQuestion>[];
+    final asked = <_Question>{};
     for (final e in _cache.values) {
-      final age = now - e.received;
       final due = switch (e.refreshes) {
         0 => e.lifetime * 0.8,
         1 => e.lifetime * 0.9,
         _ => null,
       };
-      if (due == null || age < due) continue;
+      if (due == null || now - e.received < due) continue;
       e.refreshes++;
-      final name = e.record.name;
-      if (asked.add((name.toLowerCase(), e.record.type))) {
-        refresh.add(DnsQuestion(name, e.record.type));
-      }
+      if (asked.add((name: e.name, type: e.record.type))) questions.add(DnsQuestion(e.record.name, e.record.type));
     }
-    _send(refresh);
-    _send(_missing());
-    if (_cache.length != before) _scheduleReport();
+    return questions;
   }
 
   /// Reports a little later, so the records of one announcement (often several packets, one per interface) arrive
   /// together.
   void _scheduleReport() {
-    _reportTimer ??= clock.timer(const Duration(milliseconds: 100), () {
+    _reportTimer ??= clock.timer(_reportDelay, () {
       _reportTimer = null;
       if (!_stopped) _report();
     });
@@ -341,14 +362,10 @@ final class _Session {
 
   /// The newest record of [type] for [name].
   _Entry? _newest(String name, int type) {
-    _Entry? newest;
     final lower = name.toLowerCase();
-    for (final e in _cache.values) {
-      if (e.record.type == type &&
-          e.record.name.toLowerCase() == lower &&
-          (newest == null || e.received >= newest.received)) {
-        newest = e;
-      }
+    _Entry? newest;
+    for (final e in _cache.values.where((e) => e.record.type == type && e.name == lower)) {
+      if (newest == null || e.received >= newest.received) newest = e;
     }
     return newest;
   }
@@ -364,14 +381,17 @@ final class _Session {
     final lower = host.toLowerCase();
     final found = {
       for (final e in _cache.values)
-        if (e.record.data case DnsAddress(:final address) when e.record.name.toLowerCase() == lower)
-          _inZoneOf(address, e.from),
+        if (e.record.data case DnsAddress(:final address) when e.name == lower) _inZoneOf(address, e.from),
     }.toList();
-    int rank(InternetAddress a) =>
-        (a.isLoopback ? 4 : 0) + (a.isLinkLocal ? 2 : 0) + (a.type == InternetAddressType.IPv4 ? 0 : 1);
-    found.sort((a, b) => rank(a) != rank(b) ? rank(a) - rank(b) : a.address.compareTo(b.address));
-    return found;
+    return found..sort((a, b) {
+      final byRank = _rank(a).compareTo(_rank(b));
+      return byRank != 0 ? byRank : a.address.compareTo(b.address);
+    });
   }
+
+  /// Lower is more useful: IPv4 first, then routable before link-local, loopback last.
+  static int _rank(InternetAddress a) =>
+      (a.isLoopback ? 4 : 0) + (a.isLinkLocal ? 2 : 0) + (a.type == InternetAddressType.IPv4 ? 0 : 1);
 
   /// [address], with the zone of [sender] when it is an IPv6 link-local one: `fe80::` means nothing without the
   /// interface, and the record does not name it.
@@ -403,15 +423,7 @@ final class _Session {
 
   /// Compares what the cache says now with what was reported.
   void _report() {
-    final now = <String, TvService>{};
-    for (final e in _cache.values) {
-      if (e.record.data case DnsPointer(:final target) when _isBrowsedPtr(e.record)) {
-        final key = target.toLowerCase();
-        if (now.containsKey(key)) continue;
-        if (_service(e.record.name.toLowerCase(), target) case final service?) now[key] = service;
-      }
-    }
-
+    final now = _currentServices();
     for (final MapEntry(:key, :value) in now.entries) {
       final before = _reported[key];
       if (before == null) {
@@ -426,6 +438,19 @@ final class _Session {
     _reported
       ..clear()
       ..addAll(now);
+  }
+
+  /// Every complete service in the cache, by lower-case full name.
+  Map<String, TvService> _currentServices() {
+    final services = <String, TvService>{};
+    for (final e in _cache.values) {
+      if (e.record.data case DnsPointer(:final target) when _isBrowsedPtr(e.record)) {
+        final key = target.toLowerCase();
+        if (services.containsKey(key)) continue;
+        if (_service(e.name, target) case final service?) services[key] = service;
+      }
+    }
+    return services;
   }
 
   /// The service [fullName] of [type] (`Living room TV._androidtvremote2._tcp.local`), once its SRV and an address are

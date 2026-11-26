@@ -200,18 +200,6 @@ final class TvSocket {
   }
 
   void _note(String message) => _tracer?.onEvent(TvNoteTrace(at: _clock.elapsed, message: 'port $port: $message'));
-
-  static TvRemoteException _connectError(SocketException e, String target) {
-    final code = e.osError?.errorCode;
-    if (code != null && _refusedCodes.contains(code)) {
-      return TvNoServiceException('$target refused the connection: no remote service listens there', cause: e);
-    }
-    return TvUnreachableException('Could not reach $target', cause: e);
-  }
-
-  // ECONNREFUSED on Linux and Android (111), macOS and iOS (61); on Windows WSAECONNREFUSED (10061) and
-  // ERROR_CONNECTION_REFUSED (1225), which dart:io reports for an asynchronous connect.
-  static const Set<int> _refusedCodes = {111, 61, 10061, 1225};
 }
 
 /// One connection attempt: its two stages, their deadlines and its cancellation.
@@ -223,7 +211,6 @@ final class _Attempt {
   final Duration timeout;
   final String? pin;
   String? _presented;
-  bool _mismatch = false;
   bool _cancelled = false;
   bool _opened = false;
   ConnectionTask<Socket>? _task;
@@ -267,7 +254,7 @@ final class _Attempt {
       return socket;
     } on SocketException catch (e) {
       if (_cancelled) throw _cancelledError(e);
-      throw TvSocket._connectError(e, target);
+      throw _connectError(e);
     }
   }
 
@@ -284,8 +271,7 @@ final class _Attempt {
       }
       // onBadCertificate runs only for certificates that fail verification, which every self-signed one does here;
       // checked again in case one ever passes.
-      final certificate = tls.peerCertificate;
-      if (pin != null && (certificate == null || !_accept(certificate))) {
+      if (pin != null && !_pinned(tls.peerCertificate)) {
         tls.destroy();
         throw _wrongTv();
       }
@@ -300,10 +286,14 @@ final class _Attempt {
   /// Whether to go on with the TV's [certificate]: always without a pin, otherwise only for the pinned key.
   bool _accept(X509Certificate certificate) {
     _presented = certificateFingerprint(certificate.der);
-    final accepted = pin == null || _presented == pin;
-    if (!accepted) _mismatch = true;
-    return accepted;
+    return pin == null || _presented == pin;
   }
+
+  /// Whether the TV presented a certificate with the pinned key.
+  bool _pinned(X509Certificate? certificate) => certificate != null && _accept(certificate);
+
+  /// Whether the TV presented a key that is not the pinned one.
+  bool get _mismatch => pin != null && _presented != null && _presented != pin;
 
   TvWrongTvException _wrongTv([Object? cause]) => TvWrongTvException(
     'The device at $target has another key than the paired TV',
@@ -311,4 +301,16 @@ final class _Attempt {
     actual: _presented ?? 'none',
     cause: cause,
   );
+
+  TvRemoteException _connectError(SocketException e) {
+    final code = e.osError?.errorCode;
+    if (_refusedCodes.contains(code)) {
+      return TvNoServiceException('$target refused the connection: no remote service listens there', cause: e);
+    }
+    return TvUnreachableException('Could not reach $target', cause: e);
+  }
+
+  // ECONNREFUSED on Linux and Android (111), macOS and iOS (61); on Windows WSAECONNREFUSED (10061) and
+  // ERROR_CONNECTION_REFUSED (1225), which dart:io reports for an asynchronous connect.
+  static const Set<int> _refusedCodes = {111, 61, 10061, 1225};
 }

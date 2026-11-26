@@ -35,6 +35,9 @@ abstract interface class MdnsTransport {
 /// of its own (legacy unicast answers, RFC 6762 6.7). A host without one of the two families works on the other.
 @internal
 final class IoMdnsTransport implements MdnsTransport {
+  /// The mDNS port (RFC 6762).
+  static const int _port = 5353;
+
   static final InternetAddress _group4 = InternetAddress('224.0.0.251');
   static final InternetAddress _group6 = InternetAddress('ff02::fb');
 
@@ -48,7 +51,11 @@ final class IoMdnsTransport implements MdnsTransport {
   final Map<String, NetworkInterface> _links6 = {};
 
   @override
-  bool get hearsMulticast => (_v4 != null || _v6 != null) && (_v4 == null || _v4Shared) && (_v6 == null || _v6Shared);
+  bool get hearsMulticast =>
+      (_v4 != null || _v6 != null) && _sharedIfOpen(_v4, _v4Shared) && _sharedIfOpen(_v6, _v6Shared);
+
+  /// Whether [socket] is absent or bound to the shared port.
+  static bool _sharedIfOpen(RawDatagramSocket? socket, bool shared) => socket == null || shared;
 
   @override
   Future<void> start(
@@ -70,23 +77,20 @@ final class IoMdnsTransport implements MdnsTransport {
     final v6 = _v6;
     if (v4 == null && v6 == null) throw failure!;
     if (v4 != null) _listen(v4, onPacket, onError);
-    if (v6 != null) {
-      // Losing IPv6 leaves IPv4 working; only the last socket's failure ends the browsing.
-      _listen(v6, onPacket, (Object error) {
-        if (_v4 == null) {
-          onError(error);
-        } else {
-          _v6?.close();
-          _v6 = null;
-        }
-      });
-    }
+    if (v6 != null) _listen(v6, onPacket, (error) => _onV6Error(error, onError));
+  }
+
+  /// Losing IPv6 leaves IPv4 working; only the last socket's failure ends the browsing.
+  void _onV6Error(Object error, void Function(Object error) onError) {
+    if (_v4 == null) return onError(error);
+    _v6?.close();
+    _v6 = null;
   }
 
   Future<void> _openV4() async {
     RawDatagramSocket? shared;
     try {
-      shared = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 5353, reusePort: !Platform.isWindows);
+      shared = await RawDatagramSocket.bind(InternetAddress.anyIPv4, _port, reusePort: !Platform.isWindows);
       _v4 = shared;
       _v4Shared = true;
       await _refreshV4();
@@ -104,7 +108,7 @@ final class IoMdnsTransport implements MdnsTransport {
   Future<void> _openV6() async {
     // Hop limit 255, as RFC 6762 11 asks of every mDNS packet.
     try {
-      _v6 = await RawDatagramSocket.bind(InternetAddress.anyIPv6, 5353, reusePort: !Platform.isWindows, ttl: 255);
+      _v6 = await RawDatagramSocket.bind(InternetAddress.anyIPv6, _port, reusePort: !Platform.isWindows, ttl: 255);
       _v6Shared = true;
     } on SocketException {
       _v6Shared = false;
@@ -125,7 +129,7 @@ final class IoMdnsTransport implements MdnsTransport {
         final datagram = socket.receive();
         if (datagram == null) break;
         // Responses come from port 5353 (RFC 6762 6).
-        if (datagram.port != 5353) continue;
+        if (datagram.port != _port) continue;
         try {
           onPacket(datagram.data, unmapped(datagram.address));
         } on Object catch (e) {
@@ -142,11 +146,8 @@ final class IoMdnsTransport implements MdnsTransport {
   static InternetAddress unmapped(InternetAddress address) {
     final raw = address.rawAddress;
     if (address.type != InternetAddressType.IPv6 || raw.length != 16) return address;
-    for (var i = 0; i < 10; i++) {
-      if (raw[i] != 0) return address;
-    }
-    if (raw[10] != 0xff || raw[11] != 0xff) return address;
-    return InternetAddress.fromRawAddress(raw.sublist(12), type: InternetAddressType.IPv4);
+    final mapped = raw.take(10).every((byte) => byte == 0) && raw[10] == 0xff && raw[11] == 0xff;
+    return mapped ? InternetAddress.fromRawAddress(raw.sublist(12), type: InternetAddressType.IPv4) : address;
   }
 
   @override

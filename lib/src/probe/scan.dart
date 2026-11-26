@@ -3,6 +3,7 @@
 
 import 'dart:async';
 
+import 'package:androidtv_direct/src/errors.dart';
 import 'package:androidtv_direct/src/identity/tv_identity.dart';
 import 'package:meta/meta.dart';
 
@@ -51,12 +52,18 @@ final class _Scan {
 
   /// Starts probes until [_concurrency] run, unless paused, cancelled or out of hosts; closes once all are done.
   void _next() {
-    while (!_cancelled && !_controller.isPaused && !_exhausted && _running < _concurrency && _take()) {
+    while (_mayStartAnother && _take()) {
       _running++;
       unawaited(_probe(_pending.current));
     }
-    if (_exhausted && _running == 0 && !_cancelled && !_controller.isClosed) unawaited(_controller.close());
+    if (_allDone) unawaited(_controller.close());
   }
+
+  bool get _active => !_cancelled && !_controller.isClosed;
+
+  bool get _mayStartAnother => _active && !_controller.isPaused && !_exhausted && _running < _concurrency;
+
+  bool get _allDone => _active && _exhausted && _running == 0;
 
   bool _take() {
     try {
@@ -72,7 +79,7 @@ final class _Scan {
     TvIdentity? tv;
     try {
       tv = await _identify(host);
-    } on Object {
+    } on TvRemoteException {
       // Nothing there, something else there, or a bad host: not a result.
     }
     _running--;

@@ -40,7 +40,10 @@ final class TvService {
     List<InternetAddress> addresses = const [],
     Map<String, String> txt = const {},
   }) : addresses = List.unmodifiable(addresses),
-       txt = Map.unmodifiable(txt);
+       txt = Map.unmodifiable(txt),
+       _protocol = type.toLowerCase() == TvServiceType.v1 ? TvProtocol.v1 : TvProtocol.v2;
+
+  final TvProtocol _protocol;
 
   /// One of [TvServiceType]'s types.
   final String type;
@@ -61,13 +64,13 @@ final class TvService {
   final Map<String, String> txt;
 
   /// The protocol the announcement says the TV speaks.
-  TvProtocol get protocol => type.toLowerCase() == TvServiceType.v1 ? TvProtocol.v1 : TvProtocol.v2;
+  TvProtocol get protocol => _protocol;
 
   /// The TV's Bluetooth address from the TXT record, when it gives one.
   String? get bluetoothAddress => txt['bt'];
 
   /// The address to use: the first of [addresses].
-  InternetAddress? get address => addresses.isEmpty ? null : addresses.first;
+  InternetAddress? get address => addresses.firstOrNull;
 
   /// Whether every field equals [other]'s: the equality of services (the class keeps identity equality, so services
   /// can be kept in sets by identity).
@@ -80,10 +83,10 @@ final class TvService {
       _sameMap(other.txt, txt);
 
   static bool _sameList(List<InternetAddress> a, List<InternetAddress> b) =>
-      a.length == b.length && [for (var i = 0; i < a.length; i++) a[i] == b[i]].every((same) => same);
+      a.length == b.length && a.indexed.every((entry) => b[entry.$1] == entry.$2);
 
   static bool _sameMap(Map<String, String> a, Map<String, String> b) =>
-      a.length == b.length && a.entries.every((e) => b[e.key] == e.value);
+      a.length == b.length && a.entries.every((entry) => b[entry.key] == entry.value);
 
   @override
   String toString() => 'TvService($instance ${protocol.name} ${address?.address ?? host}:$port)';
@@ -130,7 +133,3 @@ abstract interface class TvServiceBrowser {
   /// Services of [types] (from [TvServiceType]): found, updated, lost, until the subscription is cancelled.
   Stream<TvServiceEvent> browse(List<String> types);
 }
-
-/// Internal helper for implementations.
-@internal
-String fullType(String type) => type.endsWith('.local') ? type : '$type.local';
