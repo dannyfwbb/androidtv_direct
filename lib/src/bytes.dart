@@ -15,8 +15,8 @@ final Random _random = Random.secure();
 Uint8List randomBytes(int length) => Uint8List.fromList(List.generate(length, (_) => _random.nextInt(256)));
 
 /// Whether [a] holds exactly the bytes of [b].
-bool sameBytes(List<int>? a, List<int> b) {
-  if (a == null || a.length != b.length) return false;
+bool sameBytes(List<int> a, List<int> b) {
+  if (a.length != b.length) return false;
   for (var i = 0; i < a.length; i++) {
     if (a[i] != b[i]) return false;
   }

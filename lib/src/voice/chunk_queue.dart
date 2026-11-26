@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import 'dart:collection';
+import 'dart:math';
 import 'dart:typed_data';
 
 /// Bytes cut into chunks of [chunkBytes] as they are added.
@@ -13,7 +14,7 @@ final class ChunkQueue {
   final int chunkBytes;
 
   final Queue<Uint8List> _whole = Queue();
-  final BytesBuilder _partial = BytesBuilder(copy: false);
+  final BytesBuilder _partial = BytesBuilder();
 
   /// Bytes waiting, whole chunks and the partial one.
   int get length => _whole.length * chunkBytes + _partial.length;
@@ -25,8 +26,8 @@ final class ChunkQueue {
   void add(List<int> bytes) {
     var offset = 0;
     while (offset < bytes.length) {
-      final take = (chunkBytes - _partial.length).clamp(0, bytes.length - offset);
-      _partial.add(bytes.sublist(offset, offset + take));
+      final take = min(chunkBytes - _partial.length, bytes.length - offset);
+      _partial.add(bytes.getRange(offset, offset + take).toList());
       offset += take;
       if (_partial.length == chunkBytes) _whole.add(_partial.takeBytes());
     }

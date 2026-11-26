@@ -29,7 +29,7 @@ Uint8List buildCertificate(
       Der.sequence([Der.objectIdentifier(commonNameOid), Der.utf8String(commonName)]),
     ]),
   ]);
-  final algorithm = Der.sequence([Der.objectIdentifier(sha256WithRsaOid), Der.nullValue()]);
+  final algorithm = Der.algorithm(sha256WithRsaOid);
   final tbs = Der.sequence([
     Der.explicit(0, Der.smallInteger(2)),
     Der.integer(serial),

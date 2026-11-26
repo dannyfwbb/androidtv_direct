@@ -91,14 +91,13 @@ final class TvPairing {
 
   final PairingChannel _channel;
   final TvClientIdentity _identity;
-  bool _over = false;
-  bool _busy = false;
+  _Stage _stage = _Stage.open;
 
   /// The TV, as its certificate describes it. [TvIdentity.fingerprint] is what [finish] returns.
   final TvIdentity tv;
 
   /// Whether [finish] can still be called: neither finished, cancelled nor closed by the TV.
-  bool get isOpen => !_over && !_channel.socket.isClosed;
+  bool get isOpen => _stage == _Stage.open && !_channel.isClosed;
 
   /// Sends the secret for [code], the six characters on the TV's screen, and returns the paired TV.
   ///
@@ -114,7 +113,7 @@ final class TvPairing {
   Future<TvPairingResult> finish(String code, {Duration timeout = const Duration(seconds: 10)}) async {
     _checkCanFinish();
     final secret = _secretFor(code);
-    _busy = true;
+    _stage = _Stage.finishing;
     try {
       final ack = await _channel.exchange<PairingSecretAck>(PairingSecret(secret: secret), timeout: timeout);
       // TVs seen echo the secret; one that leaves the echo out has still accepted it (status OK).
@@ -122,7 +121,6 @@ final class TvPairing {
       if (echo != null && !sameBytes(echo, secret)) throw const TvProtocolException('The TV echoed another secret');
       return TvPairingResult(tv);
     } finally {
-      _busy = false;
       await _end();
     }
   }
@@ -131,9 +129,14 @@ final class TvPairing {
   Future<void> cancel() => _end();
 
   void _checkCanFinish() {
-    if (_busy) throw StateError('finish is already running');
-    if (_over) throw StateError('The pairing is over');
-    if (_channel.socket.isClosed) throw const TvPairingRefusedException('The TV closed the pairing');
+    switch (_stage) {
+      case _Stage.finishing:
+        throw StateError('finish is already running');
+      case _Stage.over:
+        throw StateError('The pairing is over');
+      case _Stage.open:
+        if (_channel.isClosed) throw const TvPairingRefusedException('The TV closed the pairing');
+    }
   }
 
   Uint8List _secretFor(String code) {
@@ -144,10 +147,12 @@ final class TvPairing {
   }
 
   Future<void> _end() async {
-    _over = true;
-    await _channel.socket.close();
+    _stage = _Stage.over;
+    await _channel.close();
   }
 }
+
+enum _Stage { open, finishing, over }
 
 /// A finished pairing.
 final class TvPairingResult {

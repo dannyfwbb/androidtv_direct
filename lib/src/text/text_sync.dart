@@ -1,6 +1,8 @@
 // Copyright 2026 The androidtv_direct authors
 // SPDX-License-Identifier: Apache-2.0
 
+import 'dart:math';
+
 import 'package:characters/characters.dart';
 import 'package:meta/meta.dart';
 
@@ -39,8 +41,14 @@ TextStep textDifference(String from, String to) {
   while (same < a.length && same < b.length && a[same] == b[same]) {
     same++;
   }
-  return TextStep(deletes: a.length - same, insert: b.skip(same).join());
+  return TextStep(deletes: a.length - same, insert: to.characters.skip(same).string);
 }
+
+/// What a report or a stall decided: a text the client should take (`adopt`, changed on the TV) and the next step to
+/// send (`send`); either may be absent.
+typedef SyncOutcome = ({String? adopt, TextStep? send});
+
+const SyncOutcome _nothing = (adopt: null, send: null);
 
 /// Keeps the client's text and the TV's field in step.
 ///
@@ -71,6 +79,7 @@ final class TextSync {
   static const int maxReplans = 3;
 
   /// The text the client wants.
+  @visibleForTesting
   String get wanted => _wanted;
 
   /// The field's text as the TV last reported it.
@@ -80,6 +89,7 @@ final class TextSync {
   bool get waiting => _awaited != null;
 
   /// Whether the TV's field holds the wanted text and nothing is in flight.
+  @visibleForTesting
   bool get settled => _awaited == null && _tv == _wanted;
 
   /// A field got the focus with [text]; nothing is in flight.
@@ -102,28 +112,26 @@ final class TextSync {
     _deleting = step.deletes > 0;
     if (step.isEmpty) return null;
     if (step.deletes > 0) {
-      final deletes = step.deletes < maxDeletes ? step.deletes : maxDeletes;
-      final kept = _tv.characters.toList();
-      _awaited = kept.take(kept.length - deletes).join();
+      final deletes = min(step.deletes, maxDeletes);
+      _awaited = _tv.characters.skipLast(deletes).string;
       return TextStep(deletes: deletes);
     }
     _awaited = _tv + step.insert;
     return step;
   }
 
-  /// The TV reported its field as [text]. `adopt` is a text the client should take (changed on the TV); `send` is
-  /// the next step to send.
-  ({String? adopt, TextStep? send}) report(String text) {
+  /// The TV reported its field as [text].
+  SyncOutcome report(String text) {
     _tv = text;
     final awaited = _awaited;
     if (awaited != null) {
       // Del keys are reported one at a time: wait for the last one.
-      if (text != awaited) return (adopt: null, send: null);
+      if (text != awaited) return _nothing;
       _awaited = null;
       _replans = 0;
       return (adopt: null, send: _next());
     }
-    if (text == _wanted) return (adopt: null, send: null);
+    if (text == _wanted) return _nothing;
     _wanted = text;
     return (adopt: text, send: null);
   }
@@ -131,13 +139,13 @@ final class TextSync {
   /// The awaited report did not come in time. A deletion is planned again from the TV's text (a TV may lose keys),
   /// up to [maxReplans] times; otherwise the TV's text wins (the field filters or limits its input). Returns the text
   /// the client must take, if any, and the step to send, if any.
-  ({String? adopt, TextStep? send}) stalled() {
+  SyncOutcome stalled() {
     _awaited = null;
     if (_deleting && _replans < maxReplans) {
       _replans++;
       return (adopt: null, send: _next());
     }
-    if (_tv == _wanted) return (adopt: null, send: null);
+    if (_tv == _wanted) return _nothing;
     _wanted = _tv;
     return (adopt: _tv, send: null);
   }

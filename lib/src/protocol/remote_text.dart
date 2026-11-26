@@ -160,7 +160,7 @@ final class KeyboardReport extends RemoteEnvelope {
   final int? fieldRevision;
 
   /// Whether the keyboard is open.
-  bool get keyboardOpen => (keyboardRevision ?? 0) != 0;
+  bool get keyboardOpen => keyboardRevision.isSet;
 
   @override
   void writeFields(ProtoWriter writer) => writer

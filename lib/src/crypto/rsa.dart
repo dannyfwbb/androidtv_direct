@@ -19,6 +19,13 @@ const String sha256WithRsaOid = '1.2.840.113549.1.1.11';
 /// The modulus size of client keys, in bits: what every client of the protocol uses.
 const int rsaKeyBits = 2048;
 
+/// Whether [algorithm], the fields of an `AlgorithmIdentifier`, names rsaEncryption with no parameters or NULL ones.
+bool isRsaAlgorithm(List<DerElement> algorithm) => switch (algorithm) {
+  [final oid] => oid.objectIdentifier == rsaEncryptionOid,
+  [final oid, final parameters] => oid.objectIdentifier == rsaEncryptionOid && parameters.tag == Der.tagNull,
+  _ => false,
+};
+
 /// An RSA public key: what the pairing secret hashes and what a certificate carries.
 final class RsaPublicKey {
   /// Creates the key.
@@ -28,10 +35,7 @@ final class RsaPublicKey {
   factory RsaPublicKey.fromSubjectPublicKeyInfo(DerElement spki) {
     final fields = spki.sequence;
     if (fields.length != 2) throw const FormatException('Not a SubjectPublicKeyInfo');
-    final algorithm = fields[0].sequence;
-    if (algorithm.isEmpty || algorithm.first.objectIdentifier != rsaEncryptionOid) {
-      throw const FormatException('Not an RSA public key');
-    }
+    if (!isRsaAlgorithm(fields[0].sequence)) throw const FormatException('Not an RSA public key');
     final key = DerElement.parse(fields[1].bits).sequence;
     if (key.length != 2) throw const FormatException('Not a PKCS#1 RSA public key');
     return RsaPublicKey(key[0].integer, key[1].integer);
@@ -84,43 +88,19 @@ final class RsaPrivateKey {
     BigInt? dQ,
     BigInt? qInv,
   }) {
-    final one = BigInt.one;
-    void check(bool ok, String problem) {
-      if (!ok) throw FormatException('Invalid RSA key: $problem');
-    }
-
-    check(modulus.bitLength == rsaKeyBits, 'modulus is not $rsaKeyBits bits');
-    check(modulus.isOdd, 'even modulus');
-    check(p > one && q > one && p != q, 'bad prime factors');
-    check(p * q == modulus, 'p * q does not equal the modulus');
-    check(p.gcd(q) == one, 'factors share a divisor');
-    check(
-      publicExponent.isOdd && publicExponent >= BigInt.from(3) && publicExponent.bitLength <= 32,
-      'public exponent must be odd, at least 3 and fit in 32 bits',
-    );
-    final pMinus1 = p - one;
-    final qMinus1 = q - one;
-    final lambda = pMinus1 * qMinus1 ~/ pMinus1.gcd(qMinus1);
-    check(
-      privateExponent > one && privateExponent < modulus && (publicExponent * privateExponent) % lambda == one,
-      'private exponent does not invert the public exponent',
-    );
-    final derivedDP = privateExponent % pMinus1;
-    final derivedDQ = privateExponent % qMinus1;
-    final derivedQInv = q.modInverse(p);
-    check(
-      (dP ?? derivedDP) == derivedDP && (dQ ?? derivedDQ) == derivedDQ && (qInv ?? derivedQInv) == derivedQInv,
-      'CRT parameters do not match',
-    );
+    _checkFactors(modulus, p, q);
+    _checkExponents(publicExponent, privateExponent, modulus, p, q);
+    final crt = (dP: privateExponent % (p - BigInt.one), dQ: privateExponent % (q - BigInt.one), qInv: q.modInverse(p));
+    _require(_fits(dP, crt.dP) && _fits(dQ, crt.dQ) && _fits(qInv, crt.qInv), 'CRT parameters do not match');
     return RsaPrivateKey._(
       modulus: modulus,
       publicExponent: publicExponent,
       privateExponent: privateExponent,
       p: p,
       q: q,
-      dP: derivedDP,
-      dQ: derivedDQ,
-      qInv: derivedQInv,
+      dP: crt.dP,
+      dQ: crt.dQ,
+      qInv: crt.qInv,
     );
   }
 
@@ -170,13 +150,7 @@ final class RsaPrivateKey {
     if (fields.length < 3 || fields[0].integer != BigInt.zero) {
       throw const FormatException('Not a PKCS#8 PrivateKeyInfo');
     }
-    final algorithm = fields[1].sequence;
-    if (algorithm.isEmpty ||
-        algorithm.first.objectIdentifier != rsaEncryptionOid ||
-        algorithm.length > 2 ||
-        (algorithm.length == 2 && algorithm[1].tag != Der.tagNull)) {
-      throw const FormatException('Not an RSA PKCS#8 key');
-    }
+    if (!isRsaAlgorithm(fields[1].sequence)) throw const FormatException('Not an RSA PKCS#8 key');
     return RsaPrivateKey.fromPkcs1(fields[2].octets);
   }
 
@@ -276,7 +250,31 @@ final class RsaPrivateKey {
     }
   }
 
-  static Uint8List _rsaAlgorithm() => Der.sequence([Der.objectIdentifier(rsaEncryptionOid), Der.nullValue()]);
+  static Uint8List _rsaAlgorithm() => Der.algorithm(rsaEncryptionOid);
+
+  static void _checkFactors(BigInt modulus, BigInt p, BigInt q) {
+    _require(modulus.bitLength == rsaKeyBits, 'modulus is not $rsaKeyBits bits');
+    _require(modulus.isOdd, 'even modulus');
+    _require(p > BigInt.one && q > BigInt.one && p != q, 'bad prime factors');
+    _require(p * q == modulus, 'p * q does not equal the modulus');
+    _require(p.gcd(q) == BigInt.one, 'factors share a divisor');
+  }
+
+  static void _checkExponents(BigInt e, BigInt d, BigInt modulus, BigInt p, BigInt q) {
+    final validE = e.isOdd && e >= BigInt.from(3) && e.bitLength <= 32;
+    _require(validE, 'public exponent must be odd, at least 3 and fit in 32 bits');
+    final (pMinus1, qMinus1) = (p - BigInt.one, q - BigInt.one);
+    final lambda = pMinus1 * qMinus1 ~/ pMinus1.gcd(qMinus1);
+    final inverts = d > BigInt.one && d < modulus && (e * d) % lambda == BigInt.one;
+    _require(inverts, 'private exponent does not invert the public exponent');
+  }
+
+  /// Whether a CRT value read from a key file is absent or the one derived.
+  static bool _fits(BigInt? given, BigInt derived) => given == null || given == derived;
+
+  static void _require(bool ok, String problem) {
+    if (!ok) throw FormatException('Invalid RSA key: $problem');
+  }
 }
 
 /// DER prefix of `DigestInfo` for SHA-256 (RFC 8017 9.2, note 1).

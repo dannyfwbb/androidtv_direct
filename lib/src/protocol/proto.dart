@@ -35,19 +35,18 @@ enum WireType {
 /// One field of a protobuf message as it was on the wire.
 final class ProtoField {
   /// A varint field.
-  ProtoField.varint(this.number, int value) : wireType = WireType.varint, _value = value, _bytes = null {
+  ProtoField.varint(this.number, int value) : wireType = WireType.varint, _payload = value {
     _checkNumber(number);
   }
 
   /// A length-delimited field.
   ProtoField.bytes(this.number, List<int> value)
     : wireType = WireType.lengthDelimited,
-      _value = 0,
-      _bytes = Uint8List.fromList(value) {
+      _payload = Uint8List.fromList(value) {
     _checkNumber(number);
   }
 
-  ProtoField._(this.number, this.wireType, this._value, this._bytes);
+  ProtoField._(this.number, this.wireType, this._payload);
 
   /// The field number.
   final int number;
@@ -55,36 +54,42 @@ final class ProtoField {
   /// How the value is encoded.
   final WireType wireType;
 
-  final int _value;
-  final Uint8List? _bytes;
+  /// The value: an `int` for a varint, the bytes for every other wire type.
+  final Object _payload;
 
   /// The value of a varint field.
-  int get asInt {
-    if (wireType != WireType.varint) throw _mismatch('a varint');
-    return _value;
-  }
+  int get asInt => wireType == WireType.varint ? _payload as int : throw _mismatch('a varint');
 
   /// The value of a length-delimited field. Do not modify it.
-  Uint8List get asBytes {
-    if (wireType != WireType.lengthDelimited) throw _mismatch('bytes');
-    return _bytes!;
-  }
+  Uint8List get asBytes =>
+      wireType == WireType.lengthDelimited ? _payload as Uint8List : throw _mismatch('length-delimited');
 
   /// The value of a length-delimited field as UTF-8 text.
-  String get asString {
-    if (wireType != WireType.lengthDelimited) throw _mismatch('a string');
-    return utf8.decode(_bytes!);
+  String get asString => utf8.decode(asBytes);
+
+  /// Writes the value as it was read: a varint, a length and bytes, or fixed bytes.
+  void _writeValue(BytesBuilder out) {
+    final payload = _payload;
+    if (payload is int) return writeVarint(out, payload);
+    payload as Uint8List;
+    if (wireType == WireType.lengthDelimited) writeVarint(out, payload.length);
+    out.add(payload);
   }
 
   FormatException _mismatch(String expected) =>
       FormatException('Field $number is ${wireType.name}, expected $expected');
 
   @override
-  String toString() =>
-      wireType == WireType.varint ? '$number: $_value' : '$number: ${wireType.name} (${_bytes!.length} bytes)';
+  String toString() => switch (_payload) {
+    final int value => '$number: $value',
+    final Uint8List bytes => '$number: ${wireType.name} (${bytes.length} bytes)',
+    _ => '$number',
+  };
+
+  static bool _validNumber(int number) => number >= 1 && number <= _maxFieldNumber;
 
   static void _checkNumber(int number) {
-    if (number < 1 || number > _maxFieldNumber) throw RangeError.range(number, 1, _maxFieldNumber, 'number');
+    if (!_validNumber(number)) throw RangeError.range(number, 1, _maxFieldNumber, 'number');
   }
 }
 
@@ -106,7 +111,7 @@ abstract final class ProtoReader {
       final key = readVarint(bytes, offset);
       offset += key.length;
       final number = key.value >> 3;
-      if (number < 1 || number > _maxFieldNumber) throw FormatException('Invalid field number $number');
+      if (!ProtoField._validNumber(number)) throw FormatException('Invalid field number $number');
       final (field, next) = _readValue(bytes, offset, number, key.value & 7);
       fields.add(field);
       offset = next;
@@ -118,7 +123,7 @@ abstract final class ProtoReader {
     switch (type) {
       case 0:
         final value = readVarint(bytes, offset);
-        return (ProtoField._(number, WireType.varint, value.value, null), offset + value.length);
+        return (ProtoField._(number, WireType.varint, value.value), offset + value.length);
       case 1:
         return _fixed(bytes, offset, number, WireType.fixed64, 8);
       case 2:
@@ -142,7 +147,7 @@ abstract final class ProtoReader {
 
   static (ProtoField, int) _slice(Uint8List bytes, int start, int number, WireType type, int length) {
     final value = Uint8List.sublistView(bytes, start, start + length);
-    return (ProtoField._(number, type, 0, value), start + length);
+    return (ProtoField._(number, type, value), start + length);
   }
 }
 
@@ -202,7 +207,7 @@ final class ProtoFields {
 /// TV has them; fields with the same number keep the order they were added in. The `optional…` methods skip `null`,
 /// so a message class writes exactly the fields it read.
 final class ProtoWriter {
-  final List<(int, Uint8List)> _fields = [];
+  final List<({int number, int order, Uint8List bytes})> _fields = [];
 
   /// Adds a varint field.
   void varint(int number, int value) => _add(number, WireType.varint, (out) => writeVarint(out, value));
@@ -219,6 +224,13 @@ final class ProtoWriter {
   /// Adds a nested message.
   void message(int number, ProtoMessage value) => bytes(number, value.encode());
 
+  /// Adds every message in [values] as field [number], in order.
+  void repeatedMessage(int number, Iterable<ProtoMessage> values) {
+    for (final value in values) {
+      message(number, value);
+    }
+  }
+
   /// Adds a varint field unless [value] is `null`.
   void optionalVarint(int number, int? value) {
     if (value != null) varint(number, value);
@@ -234,13 +246,6 @@ final class ProtoWriter {
     if (value != null) string(number, value);
   }
 
-  /// Adds every message in [values] as field [number], in order.
-  void repeatedMessage(int number, Iterable<ProtoMessage> values) {
-    for (final value in values) {
-      message(number, value);
-    }
-  }
-
   /// Adds a nested message unless [value] is `null`.
   void optionalMessage(int number, ProtoMessage? value) {
     if (value != null) message(number, value);
@@ -249,28 +254,17 @@ final class ProtoWriter {
   /// Adds fields exactly as they were read.
   void raw(Iterable<ProtoField> fields) {
     for (final field in fields) {
-      if (field.wireType == WireType.varint) {
-        varint(field.number, field.asInt);
-      } else {
-        final value = field._bytes!;
-        _add(field.number, field.wireType, (out) {
-          if (field.wireType == WireType.lengthDelimited) writeVarint(out, value.length);
-          out.add(value);
-        });
-      }
+      _add(field.number, field.wireType, field._writeValue);
     }
   }
 
-  /// The encoded message.
+  /// The encoded message: fields by number, fields with the same number in the order they were added.
   Uint8List toBytes() {
-    final order = List<int>.generate(_fields.length, (i) => i)
-      ..sort((a, b) {
-        final byNumber = _fields[a].$1.compareTo(_fields[b].$1);
-        return byNumber != 0 ? byNumber : a.compareTo(b);
-      });
+    final sorted = [..._fields]
+      ..sort((a, b) => a.number != b.number ? a.number.compareTo(b.number) : a.order.compareTo(b.order));
     final out = BytesBuilder(copy: false);
-    for (final i in order) {
-      out.add(_fields[i].$2);
+    for (final field in sorted) {
+      out.add(field.bytes);
     }
     return out.takeBytes();
   }
@@ -280,8 +274,14 @@ final class ProtoWriter {
     final out = BytesBuilder(copy: false);
     writeVarint(out, number << 3 | type.id);
     value(out);
-    _fields.add((number, out.takeBytes()));
+    _fields.add((number: number, order: _fields.length, bytes: out.takeBytes()));
   }
+}
+
+/// Whether a wire value that may be absent is set: present and not zero.
+extension WireFlag on int? {
+  /// Whether this is present and not zero.
+  bool get isSet => (this ?? 0) != 0;
 }
 
 /// A message that can be written to the wire.

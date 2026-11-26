@@ -55,10 +55,15 @@ abstract final class Der {
   }
 
   /// SEQUENCE of already encoded [items].
-  static Uint8List sequence(List<List<int>> items) => element(tagSequence, [for (final item in items) ...item]);
+  static Uint8List sequence(List<List<int>> items) => _constructed(tagSequence, items);
 
   /// SET of already encoded [items] (one item in all uses here, so no sorting is needed).
-  static Uint8List set(List<List<int>> items) => element(tagSet, [for (final item in items) ...item]);
+  static Uint8List set(List<List<int>> items) => _constructed(tagSet, items);
+
+  /// An `AlgorithmIdentifier` for [oid] with NULL parameters.
+  static Uint8List algorithm(String oid) => sequence([objectIdentifier(oid), nullValue()]);
+
+  static Uint8List _constructed(int tag, List<List<int>> items) => element(tag, [for (final item in items) ...item]);
 
   /// INTEGER (two's complement, minimal length).
   static Uint8List integer(BigInt value) => element(tagInteger, signedBytes(value));
@@ -115,7 +120,10 @@ abstract final class Der {
   }
 
   /// A context-specific constructed tag `[number]` around [content].
-  static Uint8List explicit(int number, List<int> content) => element(0xa0 | number, content);
+  static Uint8List explicit(int number, List<int> content) => element(contextTag(number), content);
+
+  /// The tag of a context-specific constructed `[number]`.
+  static int contextTag(int number) => 0xa0 | number;
 
   /// The minimal two's complement big-endian bytes of [value].
   static Uint8List signedBytes(BigInt value) {

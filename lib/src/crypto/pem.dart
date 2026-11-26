@@ -21,12 +21,23 @@ final class PemBlock {
 
 /// Reads and writes PEM (RFC 7468).
 abstract final class Pem {
+  /// The label of a certificate.
+  static const String certificate = 'CERTIFICATE';
+
+  /// The label of a PKCS#8 private key.
+  static const String privateKey = 'PRIVATE KEY';
+
+  /// The label of a PKCS#1 RSA private key.
+  static const String rsaPrivateKey = 'RSA PRIVATE KEY';
+
+  static final RegExp _whitespace = RegExp(r'\s');
+
   static final RegExp _block = RegExp(r'-----BEGIN ([A-Z0-9 ]+)-----([\s\S]*?)-----END \1-----');
 
   /// Every block in [text], in order. Text outside blocks is ignored.
   static List<PemBlock> decode(String text) => [
     for (final match in _block.allMatches(text))
-      PemBlock(match.group(1)!, base64.decode(match.group(2)!.replaceAll(RegExp(r'\s'), ''))),
+      PemBlock(match.group(1)!, base64.decode(match.group(2)!.replaceAll(_whitespace, ''))),
   ];
 
   /// [der] as a PEM block with [label], lines of 64 characters, ending with a newline.

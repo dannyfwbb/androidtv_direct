@@ -13,6 +13,10 @@ import 'package:androidtv_direct/src/text/field_kind.dart';
 import 'package:androidtv_direct/src/text/field_tracker.dart';
 import 'package:androidtv_direct/src/text/text_sync.dart';
 
+/// A selection in a text field, in UTF-16 code units; the cursor is `end` (`start` equals it when nothing is
+/// selected).
+typedef TvSelection = ({int start, int end});
+
 /// The text field that has the focus on the TV, while it has it.
 ///
 /// [text] is what the TV last reported. [setText] brings the TV's field to a text; [changes] tells about texts the
@@ -36,7 +40,7 @@ final class TvTextField {
   final List<Completer<String>> _waiting = [];
   Timer? _timer;
   bool _focused = true;
-  ({int start, int end}) _selection = (start: 0, end: 0);
+  TvSelection _selection = (start: 0, end: 0);
   bool _keyboardOpen = false;
   String? _afterMove;
 
@@ -54,7 +58,7 @@ final class TvTextField {
   String get text => _sync.tv;
 
   /// The selection, in UTF-16 code units (the cursor is `end`), as the TV last reported it.
-  ({int start, int end}) get selection => _selection;
+  TvSelection get selection => _selection;
 
   /// Whether the TV's own on-screen keyboard is open.
   bool get keyboardOpen => _keyboardOpen;
@@ -150,7 +154,7 @@ final class TvTextField {
   }
 
   /// Takes what the sync decided: a text to adopt, a step to send; completes the waiters once settled.
-  void _apply(({String? adopt, TextStep? send}) result) {
+  void _apply(SyncOutcome result) {
     if (result.adopt != null) _changes.add(result.adopt!);
     final step = result.send;
     if (step != null) {

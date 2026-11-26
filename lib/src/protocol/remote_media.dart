@@ -42,7 +42,7 @@ final class VolumeReport extends RemoteEnvelope {
   final int? muteState;
 
   /// Whether the sound is muted.
-  bool get muted => (muteState ?? 0) != 0;
+  bool get muted => muteState.isSet;
 
   @override
   void writeFields(ProtoWriter writer) => writer

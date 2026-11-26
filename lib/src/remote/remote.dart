@@ -13,6 +13,7 @@ import 'package:androidtv_direct/src/protocol/proto.dart';
 import 'package:androidtv_direct/src/protocol/remote_messages.dart';
 import 'package:androidtv_direct/src/remote/features.dart';
 import 'package:androidtv_direct/src/remote/keys.dart';
+import 'package:androidtv_direct/src/remote/links.dart';
 import 'package:androidtv_direct/src/remote/session.dart';
 import 'package:androidtv_direct/src/remote/state.dart';
 import 'package:androidtv_direct/src/remote/volume.dart';
@@ -153,7 +154,7 @@ final class TvRemote {
   /// time, [StateError] while another voice session of this remote is starting or not [TvVoiceSession.done], and
   /// what ended the session.
   Future<TvVoiceSession> startVoice({Duration timeout = const Duration(seconds: 2), bool pace = true}) async {
-    if (_voiceStarting || !(_voice?.isDone ?? true)) throw StateError('A voice session is open');
+    if (_voiceBusy) throw StateError('A voice session is open');
     _voiceStarting = true;
     try {
       return _voice = await startVoiceSession(_session, timeout: timeout, pace: pace);
@@ -161,6 +162,9 @@ final class TvRemote {
       _voiceStarting = false;
     }
   }
+
+  /// Whether a voice session is starting, or started and not done.
+  bool get _voiceBusy => _voiceStarting || (_voice != null && !_voice!.isDone);
 
   /// The text field that has the focus on the TV, or `null`. Always `null` without [TvFeature.ime] (TVs report text
   /// fields only to sessions with it); typing also needs [TvFeature.key].

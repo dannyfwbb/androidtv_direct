@@ -1,6 +1,7 @@
 // Copyright 2026 The androidtv_direct authors
 // SPDX-License-Identifier: Apache-2.0
 
+import 'package:androidtv_direct/src/protocol/proto.dart';
 import 'package:androidtv_direct/src/protocol/remote_messages.dart';
 import 'package:androidtv_direct/src/text/field_kind.dart';
 
@@ -50,7 +51,7 @@ final class FieldTracker {
 
   bool _keyboardFromFocus = false;
   bool _fieldFromFocus = false;
-  (String?, int?)? _identity;
+  ({String? package, int? id})? _view;
 
   /// Applies [message]; returns what changed, or `null`.
   FieldEvent? apply(RemoteEnvelope message) => switch (message) {
@@ -68,19 +69,23 @@ final class FieldTracker {
       return FieldEvent.unfocused;
     }
     final app = report.app;
-    final identity = (app?.packageName, app?.viewId);
-    final same = focused && identity.$2 != null && identity == _identity;
+    final view = (package: app?.packageName, id: app?.viewId);
+    final sameView = focused && view.id != null && view == _view;
     focused = true;
-    _identity = identity;
-    // The focus report's revisions are the ones the TV checks; a keyboard report's stay only where it has none.
-    _keyboardFromFocus = (app?.keyboardRevision ?? 0) != 0;
-    _fieldFromFocus = (field.fieldRevision ?? 0) != 0;
-    if (_keyboardFromFocus) keyboardRevision = app!.keyboardRevision!;
-    if (_fieldFromFocus) fieldRevision = field.fieldRevision!;
+    _view = view;
+    _takeRevisions(app, field);
     kind = TvTextFieldKind.fromEditorInfo(inputType: app?.inputType, imeOptions: app?.imeOptions);
     _setContent(field);
     // The same view reported again (an app restarting input) is a content update, not a new focus.
-    return same ? FieldEvent.content : FieldEvent.focused;
+    return sameView ? FieldEvent.content : FieldEvent.focused;
+  }
+
+  /// The focus report's revisions are the ones the TV checks; a keyboard report's stay only where it has none.
+  void _takeRevisions(FocusedApp? app, TextFieldState field) {
+    _keyboardFromFocus = app?.keyboardRevision.isSet ?? false;
+    _fieldFromFocus = field.fieldRevision.isSet;
+    if (_keyboardFromFocus) keyboardRevision = app!.keyboardRevision!;
+    if (_fieldFromFocus) fieldRevision = field.fieldRevision!;
   }
 
   FieldEvent? _keyboard(KeyboardReport report) {

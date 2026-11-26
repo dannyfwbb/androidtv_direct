@@ -91,16 +91,23 @@ final class TvState {
   /// This state with the given fields replaced, or this same object if nothing changes.
   TvState _with({bool? power, TvVolume? volume, String? app}) {
     final next = TvState(power: power ?? this.power, volume: volume ?? this.volume, app: app ?? this.app);
-    return next.power == this.power && next.volume == this.volume && next.app == this.app ? this : next;
+    return next == this ? this : next;
   }
 
   TvVolume? _volumeAfter(VolumeReport report) {
     final level = report.level ?? volume?.level;
     final maximum = report.maximum ?? volume?.maximum;
     if (level == null || maximum == null) return null;
-    final muted = report.muteState == null ? volume?.muted ?? false : report.muted;
+    final muted = report.muteState != null ? report.muted : (volume?.muted ?? false);
     return TvVolume(level: level, maximum: maximum, muted: muted);
   }
+
+  @override
+  bool operator ==(Object other) =>
+      other is TvState && other.power == power && other.volume == volume && other.app == app;
+
+  @override
+  int get hashCode => Object.hash(power, volume, app);
 
   @override
   String toString() => 'TvState(power: $power, volume: $volume, app: $app)';

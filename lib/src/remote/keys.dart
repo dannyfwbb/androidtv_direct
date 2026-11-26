@@ -1,8 +1,6 @@
 // Copyright 2026 The androidtv_direct authors
 // SPDX-License-Identifier: Apache-2.0
 
-import 'dart:convert';
-
 import 'package:androidtv_direct/src/protocol/remote_messages.dart';
 import 'package:androidtv_direct/src/remote/features.dart';
 import 'package:androidtv_direct/src/remote/session.dart';
@@ -35,7 +33,7 @@ const int maxKeyCode = 999;
 ///
 /// TVs seen so far ignore codes they do not know, so the check only catches values that cannot be key codes.
 void sendKey(RemoteSession session, int code, TvKeyAction action) {
-  if (code < minKeyCode || code > maxKeyCode) throw RangeError.range(code, minKeyCode, maxKeyCode, 'code');
+  RangeError.checkValueInInterval(code, minKeyCode, maxKeyCode, 'code');
   session
     ..require(TvFeature.key)
     ..send(KeyMessage(code: code, action: action.value));
@@ -93,18 +91,4 @@ final class KeyHolds {
     _held.remove(hold);
     if (!_session.isClosed) sendKey(_session, hold.code, TvKeyAction.up);
   }
-}
-
-/// The longest link [sendLink] sends, in bytes of UTF-8.
-const int maxLinkBytes = 8192;
-
-/// Sends [link] in [session], after checking it and the `appLink` feature.
-void sendLink(RemoteSession session, String link) {
-  if (link.isEmpty) throw ArgumentError.value(link, 'link', 'is empty');
-  if (utf8.encode(link).length > maxLinkBytes) {
-    throw ArgumentError.value(link, 'link', 'is longer than $maxLinkBytes bytes in UTF-8');
-  }
-  session
-    ..require(TvFeature.appLink)
-    ..send(OpenLinkMessage(link: link));
 }

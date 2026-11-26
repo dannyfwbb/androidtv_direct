@@ -9,11 +9,16 @@ import 'package:androidtv_direct/src/transport/tv_socket.dart';
 
 /// The pairing port's request and answer, with the pairing's failures.
 final class PairingChannel {
-  /// Speaks over [socket].
-  PairingChannel(this.socket);
+  /// Speaks over [_socket].
+  PairingChannel(this._socket);
 
-  /// The connection.
-  final TvSocket socket;
+  final TvSocket _socket;
+
+  /// Whether the connection has ended.
+  bool get isClosed => _socket.isClosed;
+
+  /// Closes the connection.
+  Future<void> close() => _socket.close();
 
   /// Sends [body] and returns the TV's answer, which must be OK and a [T], within [timeout].
   ///
@@ -22,7 +27,7 @@ final class PairingChannel {
   /// unexpected.
   Future<T> exchange<T extends PairingBody>(PairingBody body, {required Duration timeout}) async {
     final message = PairingMessage(body: body);
-    socket.send(message.encode(), kind: message.kind);
+    _socket.send(message.encode(), kind: message.kind);
     final answer = await _receive(timeout);
     if (!answer.isOk) throw _refusal(answer.status);
     final answerBody = answer.body;
@@ -33,13 +38,13 @@ final class PairingChannel {
   Future<PairingMessage> _receive(Duration timeout) async {
     final Uint8List bytes;
     try {
-      bytes = await socket.receive(timeout: timeout);
+      bytes = await _socket.receive(timeout: timeout);
     } on TvClosedException catch (e) {
       throw TvPairingRefusedException('The TV closed the pairing', cause: e);
     }
     try {
       final message = PairingMessage.decode(bytes);
-      socket.traceReceived(bytes, kind: message.kind);
+      _socket.traceReceived(bytes, kind: message.kind);
       return message;
     } on FormatException catch (e) {
       throw TvProtocolException('The TV sent a malformed pairing message', cause: e);

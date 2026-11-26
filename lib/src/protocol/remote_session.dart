@@ -252,7 +252,7 @@ final class PowerReport extends RemoteEnvelope {
   final int? state;
 
   /// Whether the TV is on.
-  bool get on => (state ?? 0) != 0;
+  bool get on => state.isSet;
 
   @override
   void writeFields(ProtoWriter writer) => writer.optionalVarint(1, state);

@@ -31,6 +31,6 @@ export 'src/remote/keys.dart' show TvKeyAction, TvKeyHold;
 export 'src/remote/remote.dart' show TvRawMessage, TvRemote;
 export 'src/remote/state.dart' show TvDevice, TvState, TvVolume;
 export 'src/text/field_kind.dart' show TvFieldAction, TvTextFieldKind;
-export 'src/text/text_field.dart' show TvTextField;
+export 'src/text/text_field.dart' show TvSelection, TvTextField;
 export 'src/trace.dart';
 export 'src/voice/voice.dart' show TvVoiceSession;

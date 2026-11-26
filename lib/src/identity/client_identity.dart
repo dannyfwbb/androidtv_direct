@@ -30,8 +30,8 @@ final class TvClientIdentity {
   /// not the one the certificate certifies.
   factory TvClientIdentity.fromPem(String pem) {
     final blocks = Pem.decode(pem);
-    final certificate = _single(blocks, {'CERTIFICATE'}).der;
-    final key = _readKey(_single(blocks, {'PRIVATE KEY', 'RSA PRIVATE KEY'}));
+    final certificate = _single(blocks, {Pem.certificate}).der;
+    final key = _readKey(_single(blocks, {Pem.privateKey, Pem.rsaPrivateKey}));
     final info = CertificateInfo.parse(certificate);
     if (info.rsaPublicKey != key.publicKey) throw const FormatException('The key does not match the certificate');
     return TvClientIdentity._(key, certificate, info);
@@ -76,9 +76,9 @@ final class TvClientIdentity {
   /// The certificate and the private key (PKCS#8) as PEM, for the app to store. It contains the private key.
   String toPem() => '$_certificatePem$_privateKeyPem';
 
-  String get _certificatePem => Pem.encode('CERTIFICATE', certificateDer);
+  String get _certificatePem => Pem.encode(Pem.certificate, certificateDer);
 
-  String get _privateKeyPem => Pem.encode('PRIVATE KEY', _key.toPkcs8());
+  String get _privateKeyPem => Pem.encode(Pem.privateKey, _key.toPkcs8());
 
   /// The public key, for the pairing secret.
   @internal
@@ -100,7 +100,7 @@ final class TvClientIdentity {
   }
 
   static RsaPrivateKey _readKey(PemBlock block) =>
-      block.label == 'PRIVATE KEY' ? RsaPrivateKey.fromPkcs8(block.der) : RsaPrivateKey.fromPkcs1(block.der);
+      block.label == Pem.privateKey ? RsaPrivateKey.fromPkcs8(block.der) : RsaPrivateKey.fromPkcs1(block.der);
 
   /// A positive 63-bit serial, so no two clients share one.
   static BigInt _randomSerial() {
