@@ -157,7 +157,13 @@ final class TvRemote {
     if (_voiceBusy) throw StateError('A voice session is open');
     _voiceStarting = true;
     try {
-      return _voice = await startVoiceSession(_session, timeout: timeout, pace: pace);
+      final previous = _voice;
+      return _voice = await startVoiceSession(
+        _session,
+        timeout: timeout,
+        pace: pace,
+        afterUnconfirmed: previous != null && !previous.endConfirmed,
+      );
     } finally {
       _voiceStarting = false;
     }

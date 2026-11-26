@@ -90,6 +90,10 @@ final class FakeSession {
   /// Whether a voice close is confirmed with the TV's own end message, as the emulator did.
   bool answerVoiceClose = true;
 
+  /// Whether an unconfirmed close is confirmed late, right after the next voice open, as the emulator sometimes did.
+  bool confirmCloseOnNextOpen = false;
+  bool _closeUnconfirmed = false;
+
   /// The level the volume keys move, from the recorded start report; the maximum stays the recorded one.
   late int volume = _recordedVolume.level!;
 
@@ -114,8 +118,14 @@ final class FakeSession {
         if (answer != null) send(c, answer.encodeEnvelope());
       case VoiceCloseMessage() when answerVoiceClose:
         send(c, recorded('voiceEnded', outgoing: false, file: 'voice.txt').bytes);
+      case VoiceCloseMessage():
+        _closeUnconfirmed = true;
       case KeyMessage(:final code) when code == TvKey.search.code && answerSearch:
         send(c, recorded('voiceOpen', outgoing: false, file: 'voice.txt').bytes);
+        if (_closeUnconfirmed && confirmCloseOnNextOpen) {
+          send(c, recorded('voiceEnded', outgoing: false, file: 'voice.txt').bytes);
+        }
+        _closeUnconfirmed = false;
       case KeyMessage(:final code, :final action) when answerVolumeKeys && action != KeyAction.release:
         _volumeKey(c, code);
       case OpenLinkMessage(:final link) when link == null || !link.contains(':'):

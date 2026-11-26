@@ -13,10 +13,19 @@ import 'package:androidtv_direct/src/voice/chunk_queue.dart';
 
 /// Presses Search and waits up to [timeout] for the TV to open a voice session, then acknowledges it.
 ///
+/// With [afterUnconfirmed] (the last session's close was never confirmed), an end the TV sends within
+/// [TvVoiceSession.staleEndWindow] of the open is taken as that confirmation, arriving late, and not as the end of the
+/// new session: the emulator sends one so when Search comes soon after such a close, and both sessions share an id.
+///
 /// A session the TV opens just after [timeout] is closed again, so its voice search does not stay open. Throws
 /// [TvNotSupportedException] without [TvFeature.voice] and [TvFeature.key], [TvTimeoutException] when the TV does not
 /// open one in time, and what ended the session.
-Future<TvVoiceSession> startVoiceSession(RemoteSession session, {required Duration timeout, required bool pace}) async {
+Future<TvVoiceSession> startVoiceSession(
+  RemoteSession session, {
+  required Duration timeout,
+  required bool pace,
+  bool afterUnconfirmed = false,
+}) async {
   session
     ..require(TvFeature.voice)
     ..require(TvFeature.key);
@@ -25,7 +34,8 @@ Future<TvVoiceSession> startVoiceSession(RemoteSession session, {required Durati
     final open = await _nextVoiceOpen(session, timeout);
     final voiceId = open.voiceId ?? 0;
     session.send(VoiceOpenMessage(voiceId: voiceId));
-    return TvVoiceSession._(session, voiceId, pace: pace);
+    final staleEndsUntil = afterUnconfirmed ? session.clock.elapsed + TvVoiceSession.staleEndWindow : Duration.zero;
+    return TvVoiceSession._(session, voiceId, pace: pace, staleEndsUntil: staleEndsUntil);
   } on TvTimeoutException {
     _closeLateOpen(session, within: timeout);
     rethrow;
@@ -67,11 +77,11 @@ enum _State {
 /// last chunk padded with silence) and ends the session; [cancel] ends it at once. The TV may end it first (its voice
 /// search finished or gave up): audio added after that is dropped, and [close] does nothing.
 final class TvVoiceSession {
-  TvVoiceSession._(this._session, this.voiceId, {required bool pace}) : _pace = pace {
+  TvVoiceSession._(this._session, this.voiceId, {required bool pace, required Duration staleEndsUntil}) : _pace = pace {
     _session.done.then((reason) => _fail(reason ?? RemoteSession.closedError)).ignore();
     _endedByTv = _session
         .messagesOf<VoiceEndedMessage>()
-        .where((ended) => ended.voiceId == voiceId)
+        .where((ended) => ended.voiceId == voiceId && _session.clock.elapsed >= staleEndsUntil)
         .listen((_) => _onEndedByTv());
   }
 
@@ -86,6 +96,10 @@ final class TvVoiceSession {
 
   /// How long [close] waits for the TV to confirm the end before [done] completes anyway.
   static const Duration endConfirmation = Duration(seconds: 1);
+
+  /// How long after the open an end is taken as a late confirmation of the session before, when that one's close was
+  /// not confirmed. Late confirmations came 5 to 12 ms after the open; a recognition ends after audio, much later.
+  static const Duration staleEndWindow = Duration(milliseconds: 250);
 
   static const Duration _chunkDuration = Duration(microseconds: chunkBytes * 1000000 ~/ bytesPerSecond);
 
@@ -108,6 +122,10 @@ final class TvVoiceSession {
 
   /// Whether [done] has completed: the TV can take a new voice session.
   bool get isDone => _done.isCompleted;
+
+  /// Whether the TV sent its end of this session (by itself, or confirming a close).
+  bool get endConfirmed => _endConfirmed;
+  bool _endConfirmed = false;
 
   /// Completes once the voice session has ended and the TV can take a new one: after [close] or [cancel] when the TV
   /// confirmed the end (or [endConfirmation] passed), or when the TV ended it. Fails with what ended the remote
@@ -202,6 +220,7 @@ final class TvVoiceSession {
   }
 
   void _onEndedByTv() {
+    _endConfirmed = true;
     if (_sending) _state = _State.endedByTv;
     _audio.clear();
     _finish();

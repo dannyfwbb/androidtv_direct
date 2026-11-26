@@ -22,4 +22,4 @@ await voice.close();                           // the TV answers on its screen
 
 - Search opened the voice session within 5-20 ms; the voice app is Google's (`com.google.android.katniss`).
 - Three seconds of a test tone, paced and not paced, were taken; the emulator's assistant answered that it is not set up in its profile, so recognition itself was not tested there. Real speech on a real TV is still to be checked.
-- After the client's voice end, the TV sent its own "ended" message.
+- After the client's voice end, the TV sometimes sent its own "ended" message at once, sometimes never (`done` then completes after `TvVoiceSession.endConfirmation`, 1 s), and sometimes only right after the next session opened, with the same session id. The package takes an "ended" in the first 250 ms of a session that follows an unconfirmed close as that late confirmation, so it does not end the new session (`TvVoiceSession.endConfirmed` tells whether the TV confirmed).

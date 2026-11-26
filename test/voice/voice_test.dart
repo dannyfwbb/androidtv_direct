@@ -258,5 +258,33 @@ void main() {
         expect(fake.fromClient.whereType<VoiceCloseMessage>(), hasLength(1));
       },
     );
+
+    test('a late confirmation of an unconfirmed close does not end the next session', () async {
+      fake
+        ..answerVoiceClose = false
+        ..confirmCloseOnNextOpen = true;
+      final first = await remote.startVoice(pace: false);
+      final closing = first.close();
+      await fake.received<VoiceCloseMessage>();
+      clock.advance(TvVoiceSession.endConfirmation);
+      await closing;
+      expect(first.endConfirmed, isFalse);
+      final second = await remote.startVoice(pace: false);
+      await fake.received<VoiceOpenMessage>(count: 2);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect((second.isOpen, second.isDone), (true, false));
+      await second.add(Uint8List(chunk));
+      await fake.received<VoiceAudioMessage>();
+    });
+
+    test("after a confirmed close, an end right after the open is the new session's", () async {
+      final first = await remote.startVoice(pace: false);
+      await first.close();
+      expect(first.endConfirmed, isTrue);
+      final second = await remote.startVoice(pace: false);
+      await fake.sendMessage(RemoteEnvelope.fromTv(recorded('voiceEnded', outgoing: false, file: 'voice.txt').bytes));
+      await second.done;
+      expect(second.isOpen, isFalse);
+    });
   });
 }
