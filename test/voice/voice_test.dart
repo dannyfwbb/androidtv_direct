@@ -185,4 +185,78 @@ void main() {
     await connect(features: const {TvFeature.key});
     await expectLater(remote.startVoice(), throwsA(isA<TvNotSupportedException>()));
   });
+
+  group('edges', () {
+    test('a session the TV opens just after the timeout is closed again', () async {
+      fake.answerSearch = false;
+      final outcome = remote.startVoice();
+      await fake.received<KeyMessage>();
+      clock.advance(const Duration(seconds: 2));
+      await expectLater(outcome, throwsA(isA<TvTimeoutException>()));
+      await fake.sendMessage(RemoteEnvelope.fromTv(recorded('voiceOpen', outgoing: false, file: 'voice.txt').bytes));
+      final closes = await fake.received<VoiceCloseMessage>();
+      expect(closes.single.voiceId, 1);
+      expect(fake.fromClient.whereType<VoiceOpenMessage>(), isEmpty, reason: 'never acknowledged');
+    });
+
+    test('addStream sends a stream of odd-sized pieces as whole chunks, the last padded', () async {
+      final voice = await remote.startVoice(pace: false);
+      final pieces = [for (var i = 0; i < 7; i++) Uint8List(chunk ~/ 3 + i)];
+      await voice.addStream(Stream.fromIterable(pieces));
+      await voice.close();
+      final total = pieces.fold(0, (sum, p) => sum + p.length);
+      final sent = audio();
+      expect(sent, hasLength((total / chunk).ceil()));
+      expect(sent.every((a) => a.samples!.length == chunk), isTrue);
+    });
+
+    test('an empty add sends nothing; close with no audio at all sends only the close', () async {
+      final voice = await remote.startVoice(pace: false);
+      await voice.add(const []);
+      await voice.close();
+      expect(audio(), isEmpty);
+      expect(fake.fromClient.whereType<VoiceCloseMessage>(), hasLength(1));
+    });
+
+    test('an add waiting for room ends when the session is cancelled, the TV ends it, or the remote ends', () async {
+      for (final end in ['cancel', 'tv', 'remote']) {
+        if (end != 'cancel') await connect();
+        final voice = await remote.startVoice();
+        final waiting = voice.add(Uint8List(TvVoiceSession.maxBufferedBytes + chunk * 2));
+        await until(() => audio().isNotEmpty);
+        switch (end) {
+          case 'cancel':
+            voice.cancel();
+            await waiting.timeout(const Duration(seconds: 2));
+          case 'tv':
+            await fake.sendMessage(
+              RemoteEnvelope.fromTv(recorded('voiceEnded', outgoing: false, file: 'voice.txt').bytes),
+            );
+            await waiting.timeout(const Duration(seconds: 2));
+          case 'remote':
+            final failed = expectLater(
+              waiting.timeout(const Duration(seconds: 2)),
+              throwsA(isA<TvCancelledException>()),
+            );
+            await remote.close();
+            await failed;
+        }
+      }
+    });
+
+    test(
+      'adding after close started, or after cancel, is refused; cancel and close after the end do nothing',
+      () async {
+        final voice = await remote.startVoice();
+        await voice.add(Uint8List(chunk * 2));
+        final closing = voice.close();
+        await expectLater(voice.add(Uint8List(1)), throwsStateError);
+        clock.advance(const Duration(seconds: 3));
+        await closing;
+        voice.cancel();
+        await voice.close();
+        expect(fake.fromClient.whereType<VoiceCloseMessage>(), hasLength(1));
+      },
+    );
+  });
 }

@@ -255,5 +255,52 @@ void main() {
       await fake.received<UnknownEnvelope>();
       expect(fake.fromClient.whereType<UnknownEnvelope>().single.field, 124);
     });
+
+    test('two closes at once both complete; done completes once with null', () async {
+      await Future.wait([remote.close(), remote.close()]);
+      expect(await remote.done, isNull);
+      expect(remote.isClosed, isTrue);
+    });
+
+    test('streams listened to after the end are done at once', () async {
+      await remote.close();
+      expect(await remote.changes.toList(), isEmpty);
+      expect(await remote.rawMessages.toList(), isEmpty);
+      expect(await remote.textFieldChanges.toList(), isEmpty);
+    });
+
+    test('a ping without an id is answered without one', () async {
+      await fake.sendMessage(PingMessage());
+      final pong = (await fake.received<PongMessage>()).single;
+      expect(pong.id, isNull);
+    });
+
+    test('a key held when the TV ends the session can still be released, which does nothing', () async {
+      final hold = remote.hold(TvKey.dpadUp);
+      await fake.received<KeyMessage>();
+      (await fake.connection.future).freeze();
+      await (await fake.connection.future).close();
+      await remote.done;
+      hold.release();
+      hold.release();
+    });
+
+    test('a raw message that is not a valid envelope still goes out, traced by its field', () async {
+      final traces = <TvTraceEvent>[];
+      final (tv, _) = await fakeTv();
+      final traced = await connect(tv, tracer: TvTracer(traces.add));
+      addTearDown(traced.close);
+      traced.sendRaw(VolumeLevelRequest.fieldNumber, const [0xff]);
+      final sent = traces.whereType<TvMessageTrace>().where((t) => t.outgoing).map((t) => t.kind);
+      expect(sent.last, 'raw(50)');
+    });
+
+    test("a second setup from the TV mid-session is answered again with the client's features", () async {
+      final before = fake.fromClient.whereType<SetupMessage>().length;
+      await fake.sendMessage(SetupMessage(features: FakeSession.recordedFeatures));
+      await fake.received<SetupMessage>(count: before + 1);
+      expect(remote.isClosed, isFalse);
+      expect(remote.features, isNotEmpty);
+    });
   });
 }
