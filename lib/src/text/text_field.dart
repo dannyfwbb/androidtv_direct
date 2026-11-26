@@ -57,7 +57,7 @@ final class TvTextField {
   /// The field's text, as the TV last reported it.
   String get text => _sync.tv;
 
-  /// The selection, in UTF-16 code units (the cursor is `end`), as the TV last reported it.
+  /// The selection, in UTF-16 code units (the cursor is `end`), as the TV last reported it; always within [text].
   TvSelection get selection => _selection;
 
   /// Whether the TV's own on-screen keyboard is open.

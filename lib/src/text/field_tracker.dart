@@ -102,9 +102,10 @@ final class FieldTracker {
     return focused ? FieldEvent.content : null;
   }
 
+  /// Takes [field]'s text and selection; a position outside the text (a TV may write -1 for none) is clamped to it.
   void _setContent(TextFieldState field) {
     text = field.text ?? '';
-    selectionStart = field.selectionStart ?? 0;
-    selectionEnd = field.selectionEnd ?? 0;
+    selectionStart = (field.selectionStart ?? 0).clamp(0, text.length);
+    selectionEnd = (field.selectionEnd ?? 0).clamp(0, text.length);
   }
 }

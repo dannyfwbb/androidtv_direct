@@ -37,4 +37,35 @@ void main() {
       ..apply(KeyboardReport(keyboardRevision: 4, fieldRevision: 9));
     expect((tracker.keyboardRevision, tracker.fieldRevision), (4, 9));
   });
+
+  FocusReport focusOn(String package, int? view, {String text = '', int? start, int? end}) => FocusReport(
+    app: FocusedApp(packageName: package, viewId: view),
+    textField: TextFieldState(text: text, selectionStart: start, selectionEnd: end),
+  );
+
+  test('a selection outside the text is clamped to it, also -1', () {
+    final tracker = FieldTracker()..apply(focusOn('x', 1, text: 'abc', start: -1, end: 99));
+    expect((tracker.selectionStart, tracker.selectionEnd), (0, 3));
+    tracker.apply(FieldReport(textField: TextFieldState(text: 'a', selectionStart: 3, selectionEnd: 3)));
+    expect((tracker.selectionStart, tracker.selectionEnd), (1, 1));
+  });
+
+  test('the same view focused again is a content change; another view, or one without an id, a new focus', () {
+    final tracker = FieldTracker();
+    expect(tracker.apply(focusOn('x', 1)), FieldEvent.focused);
+    expect(tracker.apply(focusOn('x', 1, text: 'a')), FieldEvent.content);
+    expect(tracker.apply(focusOn('x', 2)), FieldEvent.focused);
+    expect(tracker.apply(focusOn('y', 2)), FieldEvent.focused);
+    expect(tracker.apply(focusOn('y', null)), FieldEvent.focused);
+    expect(tracker.apply(focusOn('y', null)), FieldEvent.focused, reason: 'without an id the view cannot be the same');
+  });
+
+  test('reports without a focused field change nothing visible', () {
+    final tracker = FieldTracker();
+    expect(tracker.apply(FocusReport(app: FocusedApp(packageName: 'x'))), isNull);
+    expect(tracker.apply(KeyboardReport(keyboardRevision: 1)), isNull);
+    expect(tracker.apply(FieldReport(textField: TextFieldState(text: 'zz'))), isNull);
+    expect(tracker.apply(FieldReport()), isNull, reason: 'a field report without its field');
+    expect(tracker.apply(PingMessage(id: 1)), isNull);
+  });
 }
