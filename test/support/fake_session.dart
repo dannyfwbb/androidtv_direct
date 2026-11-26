@@ -88,6 +88,9 @@ final class FakeSession {
   /// Whether the volume keys change [volume] and report it, as a TV does. Off to test a TV that does not answer.
   bool answerVolumeKeys = true;
 
+  /// How many volume keys still to lose, as a TV that drops a key now and then.
+  int loseVolumeKeys = 0;
+
   /// Whether the Search key opens a voice session (id 1, the recorded voice app), as the emulator's did.
   bool answerSearch = true;
 
@@ -133,6 +136,9 @@ final class FakeSession {
           send(c, recorded('voiceEnded', outgoing: false, file: 'voice.txt').bytes);
         }
         _closeUnconfirmed = false;
+      case KeyMessage(:final code)
+          when loseVolumeKeys > 0 && (code == TvKey.volumeUp.code || code == TvKey.volumeDown.code):
+        loseVolumeKeys--;
       case KeyMessage(:final code, :final action) when answerVolumeKeys && action != KeyAction.release:
         _volumeKey(c, code);
       case OpenLinkMessage(:final link) when link == null || !link.contains(':'):

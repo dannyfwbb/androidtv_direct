@@ -148,9 +148,9 @@ final class TvRemote {
   /// each (the emulator ignored a level sent directly). Mute is left as it is.
   ///
   /// Throws [TvNotSupportedException] without [TvFeature.key] or [TvFeature.volume], or before the TV reported its
-  /// volume; [RangeError] for a level out of range; [TvTimeoutException] when a report does not come within
-  /// [stepTimeout] (longer when the TV's answers have been taking longer, but never past [timeout]) or the level is not
-  /// reached within [timeout]; [TvCancelledException] when a newer [setVolume] takes over; [ArgumentError] for a
+  /// volume; [RangeError] for a level out of range; [TvTimeoutException] when the level is not reached within
+  /// [timeout] (a press not answered within [stepTimeout], or longer when the TV's answers have been taking longer, is
+  /// pressed again: TVs were seen to lose one); [TvCancelledException] when a newer [setVolume] takes over; [ArgumentError] for a
   /// timeout that is not longer than zero; and what ended the session if it ends meanwhile.
   Future<void> setVolume(
     int level, {

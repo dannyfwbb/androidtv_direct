@@ -149,6 +149,35 @@ void main() {
       expect((remote.state.volume!.level, fake.volume), (2, 2));
     });
 
+    test('a press the TV loses is pressed again, and the level is reached', () async {
+      final remote = await connect();
+      await until(() => remote.state.volume != null);
+      final from = remote.state.volume!.level;
+      fake.loseVolumeKeys = 1;
+      final setting = remote.setVolume(from + 2);
+      await sent<KeyMessage>(1);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      clock.advance(const Duration(seconds: 2));
+      await setting;
+      expect((remote.state.volume!.level, fake.volume), (from + 2, from + 2));
+      expect(fake.fromClient.whereType<KeyMessage>(), hasLength(3), reason: 'two steps and the lost one again');
+    });
+
+    test('a TV that answers no press at all fails within the timeout', () async {
+      final remote = await connect();
+      await until(() => remote.state.volume != null);
+      fake.answerVolumeKeys = false;
+      final setting = expectLater(
+        remote.setVolume(remote.state.volume!.level + 1, timeout: const Duration(seconds: 5)),
+        throwsA(isA<TvTimeoutException>()),
+      );
+      for (var i = 0; i < 4; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        clock.advance(const Duration(seconds: 2));
+      }
+      await setting;
+    });
+
     test('a newer call takes over from an older one', () async {
       final remote = await connect();
       await until(() => remote.state.volume != null);
@@ -172,17 +201,6 @@ void main() {
       await until(() => remote.state.volume != null);
       expect(() => remote.setVolume(16), throwsRangeError);
       expect(() => remote.setVolume(-1), throwsRangeError);
-    });
-
-    test('a TV that does not report the change times out', () async {
-      final remote = await connect();
-      await until(() => remote.state.volume != null);
-      fake.answerVolumeKeys = false;
-      final outcome = remote.setVolume(12);
-      // The step's deadline is set before the key goes out.
-      await sent<KeyMessage>(1);
-      clock.advance(const Duration(seconds: 2));
-      await expectLater(outcome, throwsA(isA<TvTimeoutException>()));
     });
 
     test('a session that ends while setting throws why it ended', () async {

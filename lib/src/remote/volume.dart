@@ -40,12 +40,12 @@ final class VolumeControl {
     }
   }
 
-  /// Presses one volume key toward [toward] and waits for the report of the level it moved to. The report cannot
-  /// arrive before the wait starts: it comes from a later read of the socket.
+  /// Presses one volume key toward [toward] and waits for a new level. A press with no answer in time (a TV that lost
+  /// it, or one whose press while muted only unmutes) is no failure: the loop presses again from the level the TV
+  /// reports, and a press that was only late is evened out by the next step; [set]'s timeout bounds it all.
   ///
   /// Only a new level counts: volume up while muted is reported twice (the unmute at the same level, then the new
-  /// level), and taking the first for the step would leave every later report one press behind, until a press at
-  /// either end of the range is never answered. A step that brought only an unmute counts once its wait is over.
+  /// level), and taking the first for the step would leave every later report one press behind.
   Future<void> _step(TvVolume before, {required int toward, required Duration timeout}) async {
     final key = toward > before.level ? TvKey.volumeUp : TvKey.volumeDown;
     sendKey(_session, key.code, TvKeyAction.press);
@@ -58,8 +58,7 @@ final class VolumeControl {
       );
       _session.roundTrip.add(_session.clock.elapsed - sentAt);
     } on TvTimeoutException {
-      // A TV whose press while muted only unmutes, without a new level, still answered: go on with the next press.
-      if (_session.state.volume == before) rethrow;
+      // Pressed again by the loop.
     }
   }
 }
