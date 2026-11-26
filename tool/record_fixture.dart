@@ -7,11 +7,11 @@
 /// dart run tool/record_fixture.dart <host> <adb serial> <output file>
 /// ```
 ///
-/// The TV must be reachable on both ports and its screen readable over adb (the code is read with `uiautomator`).
-/// Every run pairs a new identity, so it adds another client (shown as `androidtv_direct`) on the TV. The session then: waits for a ping, presses volume up and
-/// down, opens a web link, goes home, and opens a bare package name, which the TV refuses and ends the session with.
-/// Lines name messages by kind; a kind seen again gets `.2`, `.3`… Review the file before committing it: it must not
-/// hold anything that identifies a real TV.
+/// The TV must be reachable on both ports and its screen readable over adb (the code is read with `uiautomator`). Every
+/// run pairs a new identity, so it adds another client (shown as `androidtv_direct`) on the TV. The session then: waits
+/// for a ping, presses volume up and down, opens a web link, goes home, and opens a bare package name, which the TV
+/// refuses and ends the session with. Lines name messages by kind; a kind seen again gets `.2`, `.3`… Review the file
+/// before committing it: it must not hold anything that identifies a real TV.
 library;
 
 import 'dart:io';

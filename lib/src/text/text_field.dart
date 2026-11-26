@@ -64,11 +64,11 @@ final class TvTextField {
 
   /// Brings the TV's field to [value], and completes with the field's text once the TV reported it.
   ///
-  /// Moves the cursor to the end if the TV reports it elsewhere (in a multi-line field, to the end of its line), deletes
-  /// what differs from [value] at the end with Del keys and inserts the rest, one step at a time, each after the TV's
-  /// report of the last. Calls made meanwhile replace the wanted text and complete together. When an insertion's
-  /// report does not come within [giveUpAfter] (the field filters or limits its input), completes with the TV's text
-  /// as it is, which may differ from [value].
+  /// Moves the cursor to the end if the TV reports it elsewhere (in a multi-line field, to the end of its line),
+  /// deletes what differs from [value] at the end with Del keys and inserts the rest, one step at a time, each after
+  /// the TV's report of the last. Calls made meanwhile replace the wanted text and complete together. When an
+  /// insertion's report does not come within [giveUpAfter] (the field filters or limits its input), completes with the
+  /// TV's text as it is, which may differ from [value].
   ///
   /// Every failure comes through the returned future: [TvCancelledException] when the field lost the focus,
   /// [TvNotSupportedException] without [TvFeature.ime] and [TvFeature.key], and what ended the session.

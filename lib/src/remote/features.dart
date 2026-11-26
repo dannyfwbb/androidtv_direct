@@ -6,9 +6,9 @@ enum TvFeature {
   /// Key presses.
   key(2),
 
-  /// Text input: the focused field's reports and text edits, and the reports of the app in front (`TvState.app`),
-  /// which TVs seen so far (remote service 7.00) send only with this feature. Some TVs show a notice ("use the keyboard on your phone") while a
-  /// client has it, so it is not in [defaults].
+  /// Text input: the focused field's reports and text edits, and the reports of the app in front (`TvState.app`), which
+  /// TVs seen so far (remote service 7.00) send only with this feature. Some TVs show a notice ("use the keyboard on
+  /// your phone") while a client has it, so it is not in [defaults].
   ime(4),
 
   /// Voice sessions.

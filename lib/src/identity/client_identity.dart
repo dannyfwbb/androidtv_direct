@@ -40,8 +40,9 @@ final class TvClientIdentity {
   /// Makes a new identity: an RSA-2048 key and a certificate valid from [now] for [validity].
   ///
   /// TVs remember paired clients by the name in their certificate (seen on remote service 7.00): pairing a client whose
-  /// certificate has the same name as an earlier one replaces the earlier one on that TV. The default [commonName] is therefore unique per
-  /// identity (`androidtv_direct/` and 16 random hexadecimal digits); a name given here must be unique as well.
+  /// certificate has the same name as an earlier one replaces the earlier one on that TV. The default [commonName] is
+  /// therefore unique per identity (`androidtv_direct/` and 16 random hexadecimal digits); a name given here must be
+  /// unique as well.
   ///
   /// Generating the key takes a fraction of a second on a desktop, possibly more on a phone; it runs in a separate
   /// isolate. Throws [ArgumentError] if [validity] is not positive or [commonName] is empty.
