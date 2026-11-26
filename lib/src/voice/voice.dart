@@ -29,25 +29,37 @@ Future<TvVoiceSession> startVoiceSession(
   session
     ..require(TvFeature.voice)
     ..require(TvFeature.key);
+  // Ends that arrive with the open (one read can carry both) come before this function resumes: they are kept for the
+  // voice session, which listens only from its start.
+  var opened = false;
+  final endedEarly = <VoiceEndedMessage>[];
+  final early = session.messagesOf<VoiceEndedMessage>().listen((ended) => opened ? endedEarly.add(ended) : null);
   sendKey(session, TvKey.search.code, TvKeyAction.press);
   try {
-    final open = await _nextVoiceOpen(session, timeout);
+    final open = await _nextVoiceOpen(session, timeout, onOpen: () => opened = true);
     final voiceId = open.voiceId ?? 0;
     session.send(VoiceOpenMessage(voiceId: voiceId));
     final staleEndsUntil = afterUnconfirmed ? session.clock.elapsed + TvVoiceSession.staleEndWindow : Duration.zero;
-    return TvVoiceSession._(session, voiceId, pace: pace, staleEndsUntil: staleEndsUntil);
+    return TvVoiceSession._(session, voiceId, pace: pace, staleEndsUntil: staleEndsUntil, endedEarly: endedEarly);
   } on TvTimeoutException {
     _closeLateOpen(session, within: timeout);
     rethrow;
+  } finally {
+    unawaited(early.cancel());
   }
 }
 
-Future<VoiceOpenMessage> _nextVoiceOpen(RemoteSession session, Duration timeout) => session.next(
-  session.messagesOf<VoiceOpenMessage>(),
-  (_) => true,
-  timeout: timeout,
-  onTimeout: () => TvTimeoutException('The TV did not open a voice session within $timeout'),
-);
+/// The TV's next voice open, within [timeout]; [onOpen] runs as soon as it arrives.
+Future<VoiceOpenMessage> _nextVoiceOpen(RemoteSession session, Duration timeout, {void Function()? onOpen}) =>
+    session.next(
+      session.messagesOf<VoiceOpenMessage>(),
+      (_) {
+        onOpen?.call();
+        return true;
+      },
+      timeout: timeout,
+      onTimeout: () => TvTimeoutException('The TV did not open a voice session within $timeout'),
+    );
 
 /// Closes a voice session the TV opens [within] a timeout after the client stopped waiting.
 void _closeLateOpen(RemoteSession session, {required Duration within}) =>
@@ -77,12 +89,17 @@ enum _State {
 /// last chunk padded with silence) and ends the session; [cancel] ends it at once. The TV may end it first (its voice
 /// search finished or gave up): audio added after that is dropped, and [close] does nothing.
 final class TvVoiceSession {
-  TvVoiceSession._(this._session, this.voiceId, {required bool pace, required Duration staleEndsUntil}) : _pace = pace {
+  TvVoiceSession._(
+    this._session,
+    this.voiceId, {
+    required bool pace,
+    required Duration staleEndsUntil,
+    required List<VoiceEndedMessage> endedEarly,
+  }) : _pace = pace {
     _session.done.then((reason) => _fail(reason ?? RemoteSession.closedError)).ignore();
-    _endedByTv = _session
-        .messagesOf<VoiceEndedMessage>()
-        .where((ended) => ended.voiceId == voiceId && !_isStaleEnd(staleEndsUntil))
-        .listen((_) => _onEndedByTv());
+    bool endsThis(VoiceEndedMessage ended) => ended.voiceId == voiceId && !_isStaleEnd(staleEndsUntil);
+    _endedByTv = _session.messagesOf<VoiceEndedMessage>().where(endsThis).listen((_) => _onEndedByTv());
+    if (endedEarly.any(endsThis)) _onEndedByTv();
   }
 
   /// The bytes of one chunk.

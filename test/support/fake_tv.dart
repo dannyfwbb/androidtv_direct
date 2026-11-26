@@ -228,6 +228,14 @@ final class FakeTvConnection {
   /// Hands what [send] gathered to the socket now (in `coalesce` mode sends wait for the next receive or close).
   void flush() => _flush();
 
+  /// Sends [bodies] as frames in one write (split by the chunking mode), as a TV whose messages arrive in one read.
+  void sendTogether(List<List<int>> bodies) {
+    for (final body in bodies) {
+      _pending.addAll(encodeFrame(body));
+    }
+    _flush();
+  }
+
   /// Stops reading and writing, as a TV that froze; the socket stays open until [close].
   void freeze() {
     _frozen = true;

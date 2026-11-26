@@ -261,8 +261,9 @@ void main() {
     final field = await focus(FakeField(text: 'hello', cursor: 2, honoursRanges: false));
     final first = field.setText('help');
     await until(() => clock.pendingTimers > 0);
+    // The Move End wait ends and the first step goes out, synchronously: the second call comes while it is in flight
+    // (waiting for the TV's report here would let a fast fake TV finish the whole first call).
     clock.advance(const Duration(milliseconds: 300));
-    await fake.received<KeyMessage>(count: fake.fromClient.whereType<KeyMessage>().length + 1);
     final second = field.setText('he');
     expect(await Future.wait([first, second]).timeout(const Duration(seconds: 5)), ['he', 'he']);
   });

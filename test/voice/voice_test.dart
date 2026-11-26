@@ -277,6 +277,19 @@ void main() {
       await fake.received<VoiceAudioMessage>();
     });
 
+    test('an end that arrives in the same read as the open ends the new session', () async {
+      fake.answerSearch = false;
+      final starting = remote.startVoice(pace: false);
+      await until(() => fake.fromClient.whereType<KeyMessage>().any((k) => k.code == TvKey.search.code));
+      (await fake.connection.future).sendTogether([
+        recorded('voiceOpen', outgoing: false, file: 'voice.txt').bytes,
+        recorded('voiceEnded', outgoing: false, file: 'voice.txt').bytes,
+      ]);
+      final voice = await starting;
+      await voice.done.timeout(const Duration(seconds: 2));
+      expect(voice.endConfirmed, isTrue);
+    });
+
     test('after an unconfirmed close, only the first end right after the open is taken as the late one', () async {
       fake
         ..answerVoiceClose = false
