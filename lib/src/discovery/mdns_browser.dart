@@ -321,7 +321,16 @@ final class _Session {
     };
   }
 
-  bool _isBrowsedPtr(DnsRecord r) => r.type == DnsType.ptr && types.contains(r.name.toLowerCase());
+  /// A PTR of a browsed type that names an instance of that type (`<Instance>.<type>`, RFC 6763 4.1); one pointing
+  /// elsewhere would mix up the types of the services it names.
+  bool _isBrowsedPtr(DnsRecord r) {
+    if (r.data case DnsPointer(:final target) when r.type == DnsType.ptr) {
+      final type = r.name.toLowerCase();
+      final full = target.toLowerCase();
+      return types.contains(type) && full.length > type.length + 1 && full.endsWith('.$type');
+    }
+    return false;
+  }
 
   /// Cache-flush: the bit replaces the older records of the set from the same sender that are more than a second old
   /// (RFC 6762 10.2). True when something went.
@@ -503,18 +512,15 @@ final class _Session {
   }
 
   /// The service [fullName] of [type] (`Living room TV._androidtvremote2._tcp.local`), once its SRV and an address are
-  /// known.
+  /// known. An SRV with port 0 says the service is not available (RFC 6763 6).
   TvService? _service(String type, String fullName) {
     final srv = _srv(fullName);
-    if (srv == null) return null;
+    if (srv == null || srv.port == 0) return null;
     final addresses = _addresses(srv.target);
     if (addresses.isEmpty) return null;
-    final suffix = '.$type';
     return TvService(
       type: type.substring(0, type.length - '.local'.length),
-      instance: fullName.toLowerCase().endsWith(suffix)
-          ? fullName.substring(0, fullName.length - suffix.length)
-          : fullName,
+      instance: fullName.substring(0, fullName.length - type.length - 1),
       port: srv.port,
       host: srv.target,
       addresses: addresses,

@@ -190,9 +190,10 @@ final class TvVoiceSession {
     }
   }
 
-  /// Sends whole chunks: all of them without pacing, otherwise one now and the next when its time comes.
+  /// Sends whole chunks: all of them without pacing, otherwise one now and the next when its time comes. Nothing once
+  /// the session ended: the end reaches this voice session through [RemoteSession.done].
   void _pump() {
-    while (_sending && _paceTimer == null && _audio.hasChunk) {
+    while (_sending && !_session.isClosed && _paceTimer == null && _audio.hasChunk) {
       _session.send(VoiceAudioMessage(voiceId: voiceId, samples: _audio.take()));
       if (_pace) _paceTimer = _session.clock.timer(_chunkDuration, _onPaced);
     }

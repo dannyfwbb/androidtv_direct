@@ -68,7 +68,7 @@ The session asks for a set of `TvFeature`s and the TV grants what it offers of i
 
 ## State and changes
 
-`remote.state` is a `TvState` holding the latest of what the TV reported: `power` (on or off), `volume` (`level`, `maximum`, `muted`) and `app` (the package in front, with `ime`). Fields the TV has not reported are `null`; the TV sends its volume report around its power report, before or just after `connect` returns. `remote.changes` streams every new state as it happens and closes when the session ends. `remote.device` is what the TV said about itself: `vendor`, `model`, `androidRelease`, `serviceVersion`.
+`remote.state` is a `TvState` holding the latest of what the TV reported: `power` (on or off), `volume` (`level`, `maximum`, `muted`) and `app` (the package in front, with `ime`). Fields the TV has not reported are `null`; a volume is always within its range (a report outside it is brought to the nearest end); the TV sends its volume report around its power report, before or just after `connect` returns. `remote.changes` streams every new state as it happens and closes when the session ends. `remote.device` is what the TV said about itself: `vendor`, `model`, `androidRelease`, `serviceVersion`.
 
 ## Staying alive
 

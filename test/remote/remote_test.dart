@@ -94,6 +94,17 @@ void main() {
       await remote.close();
     });
 
+    test('a second setup from the TV gets the same answer and changes nothing', () async {
+      final (tv, fake) = await fakeTv();
+      final remote = await connect(tv);
+      final first = fake.fromClient.first as SetupMessage;
+      await fake.sendMessage(SetupMessage(features: TvFeature.voice.bit));
+      final [again] = await fake.received<SetupMessage>(count: 2).then((all) => all.skip(1).toList());
+      expect(hexEncode(again.encodeEnvelope()), hexEncode(first.encodeEnvelope()));
+      expect(remote.features, TvFeature.defaults);
+      await remote.close();
+    });
+
     test('a TV that never reports its power state times out', () async {
       final (tv, fake) = await fakeTv(FakeSession(fault: SessionFault.noPower));
       final clock = FakeClock();

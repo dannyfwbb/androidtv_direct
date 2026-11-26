@@ -49,6 +49,9 @@ final class RemoteSession {
   final StreamController<FieldEvent> _fieldEvents = StreamController.broadcast(sync: true);
   Watchdog? _watchdog;
   bool _heardFromTv = false;
+
+  /// The feature bits agreed in the first setup.
+  int? _agreed;
   TvRemoteException? _endReason;
   TvDevice _device = const TvDevice();
   Set<TvFeature> _granted = const {};
@@ -177,11 +180,14 @@ final class RemoteSession {
 
   void _handle(RemoteEnvelope message) {
     switch (message) {
-      case SetupMessage(:final features, device: final info):
+      // Features are agreed once: a TV that sends its setup again gets the same answer.
+      case SetupMessage(:final features, device: final info) when _agreed == null:
         _device = TvDevice.fromInfo(info);
-        final mask = _wanted & (features ?? 0);
-        _granted = TvFeature.fromMask(mask);
-        send(SetupMessage(features: mask, device: _client));
+        final agreed = _agreed = _wanted & (features ?? 0);
+        _granted = TvFeature.fromMask(agreed);
+        send(SetupMessage(features: agreed, device: _client));
+      case SetupMessage():
+        send(SetupMessage(features: _agreed, device: _client));
       case ActivateMessage():
         send(ActivateMessage(features: TvFeature.maskOf(_granted)));
       case PingMessage(:final id):

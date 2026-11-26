@@ -26,4 +26,11 @@ void main() {
     expect(muted.volume, const TvVolume(level: 3, maximum: 15, muted: true));
     expect(muted.apply(VolumeReport(level: 4)).volume, const TvVolume(level: 4, maximum: 15, muted: true));
   });
+
+  test('a volume report out of range is brought within it: the level from 0 to a maximum of at least 0', () {
+    TvVolume? volume(int level, int maximum) => empty.apply(VolumeReport(level: level, maximum: maximum)).volume;
+    expect(volume(20, 15), const TvVolume(level: 15, maximum: 15, muted: false));
+    expect(volume(-1, 15), const TvVolume(level: 0, maximum: 15, muted: false));
+    expect(volume(3, -5), const TvVolume(level: 0, maximum: 0, muted: false));
+  });
 }

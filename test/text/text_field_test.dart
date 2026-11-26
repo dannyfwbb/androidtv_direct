@@ -297,6 +297,20 @@ void main() {
     expect((field.text, field.selection, field.isFocused), ('first', (start: 2, end: 2), false));
   });
 
+  test('a step that cannot go out from a timer fails the waiting setText instead of escaping', () async {
+    // Lost Del keys stall the deletion, and the give-up timer sends them again: here after the session ended but
+    // before the field heard of it.
+    final field = await focus(FakeField(text: 'abcdef', loseDels: 2, honoursRanges: false));
+    final cleared = field.setText('');
+    await fake.received<TextEditMessage>();
+    clock.advance(const Duration(milliseconds: 1500));
+    await until(() => field.text == 'ab');
+    final closing = remote.close();
+    clock.advance(const Duration(milliseconds: 1500));
+    await expectLater(cleared, throwsA(isA<TvCancelledException>()));
+    await closing;
+  });
+
   test('the end of the session fails a waiting setText with why it ended', () async {
     final tvField = FakeField(reject: 'x');
     final field = await focus(tvField);

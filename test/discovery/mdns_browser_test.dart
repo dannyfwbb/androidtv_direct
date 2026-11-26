@@ -102,6 +102,30 @@ void main() {
       expect(events.last.service.addresses.map((a) => a.address), ['192.168.0.21', '127.0.0.1']);
     });
 
+    test('an SRV with port 0 is a service that is not available: lost, and found again with a port', () async {
+      await start();
+      transport.deliver(fullTv().bytes());
+      clock.advance(const Duration(seconds: 2));
+      transport.deliver((Answer()..srv(instance, 'Android.local', 0)).bytes());
+      expect(events.map((e) => e.runtimeType), [TvServiceFound, TvServiceLost]);
+      clock.advance(const Duration(seconds: 2));
+      transport.deliver((Answer()..srv(instance, 'Android.local', 6466)).bytes());
+      expect(events.last, isA<TvServiceFound>().having((e) => e.service.port, 'port', 6466));
+    });
+
+    test('a PTR naming an instance of another type is ignored', () async {
+      await start();
+      const other = 'Den._androidtvremote._tcp.local';
+      transport.deliver(
+        (Answer()
+              ..ptr(v2type, other)
+              ..srv(other, 'Android.local', 6466)
+              ..a('Android.local', '192.168.0.20'))
+            .bytes(),
+      );
+      expect(events, isEmpty);
+    });
+
     test('other types, garbage and queries are ignored', () async {
       await start();
       transport

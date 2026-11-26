@@ -142,8 +142,7 @@ final class TvTextField {
   void _moveCursorToEnd(String value) {
     final first = _afterMove == null;
     _afterMove = value;
-    if (!first) return;
-    sendKey(_session, TvKey.moveEnd.code, TvKeyAction.press);
+    if (!first || !_sent(() => sendKey(_session, TvKey.moveEnd.code, TvKeyAction.press))) return;
     _restartTimer(_moveEndWait, _afterCursorMoved);
   }
 
@@ -177,7 +176,7 @@ final class TvTextField {
     if (result.adopt != null) _changes.add(result.adopt!);
     final step = result.send;
     if (step != null) {
-      _sendStep(step);
+      if (!_sent(() => _sendStep(step))) return;
       _restartTimer(giveUpAfter, () => _apply(_sync.stalled()));
     }
     if (_sync.waiting) return;
@@ -186,6 +185,25 @@ final class TvTextField {
       waiter.complete(_sync.tv);
     }
     _waiting.clear();
+  }
+
+  /// Runs [send]; returns whether it went out. Sends also happen in reports and timers, where nothing could catch a
+  /// failure (the session ended, a feature is missing): it fails the waiting [setText] calls instead, and the sync
+  /// starts again from the TV's text, so the next call is not left waiting for a step that never went out.
+  bool _sent(void Function() send) {
+    try {
+      send();
+      return true;
+    } on TvRemoteException catch (e) {
+      _timer?.cancel();
+      _afterMove = null;
+      _sync.reset(_sync.tv, cursor: _selection.end);
+      for (final waiter in _waiting) {
+        waiter.completeError(e);
+      }
+      _waiting.clear();
+      return false;
+    }
   }
 
   void _sendStep(TextStep step) {

@@ -1,6 +1,8 @@
 // Copyright 2026 The androidtv_direct authors
 // SPDX-License-Identifier: Apache-2.0
 
+import 'dart:math';
+
 import 'package:androidtv_direct/src/protocol/remote_messages.dart';
 import 'package:meta/meta.dart';
 
@@ -80,7 +82,8 @@ final class TvState {
   /// This state with [message]'s report applied, or this same object if it changes nothing.
   ///
   /// A volume report missing some fields keeps the previous values of those; until the TV has reported a level and a
-  /// maximum, [volume] stays `null`.
+  /// maximum, [volume] stays `null`. A maximum below zero is taken as zero and a level outside the range as its
+  /// nearest end, so [TvVolume] always holds a level from 0 to its maximum.
   TvState apply(RemoteEnvelope message) => switch (message) {
     PowerReport(:final on) => _with(power: on),
     VolumeReport() => _with(volume: _volumeAfter(message)),
@@ -96,10 +99,11 @@ final class TvState {
 
   TvVolume? _volumeAfter(VolumeReport report) {
     final level = report.level ?? volume?.level;
-    final maximum = report.maximum ?? volume?.maximum;
-    if (level == null || maximum == null) return null;
+    final reported = report.maximum ?? volume?.maximum;
+    if (level == null || reported == null) return null;
+    final maximum = max(reported, 0);
     final muted = report.muteState != null ? report.muted : (volume?.muted ?? false);
-    return TvVolume(level: level, maximum: maximum, muted: muted);
+    return TvVolume(level: level.clamp(0, maximum), maximum: maximum, muted: muted);
   }
 
   @override
