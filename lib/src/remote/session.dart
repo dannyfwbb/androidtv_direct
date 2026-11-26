@@ -15,7 +15,6 @@ import 'package:androidtv_direct/src/remote/state.dart';
 import 'package:androidtv_direct/src/remote/watchdog.dart';
 import 'package:androidtv_direct/src/text/field_tracker.dart';
 import 'package:androidtv_direct/src/transport/tv_socket.dart';
-import 'package:meta/meta.dart';
 
 /// Something that follows a session from inside: every message, field change and the end, as the session handles
 /// them and before any other code runs. Its state therefore never lags behind the session's: no timer, report or call
@@ -110,10 +109,6 @@ final class RemoteSession {
 
   /// Stops telling [part] about the session.
   void detach(SessionPart part) => _parts.remove(part);
-
-  /// How many parts follow the session.
-  @visibleForTesting
-  int get partCount => _parts.length;
 
   /// Every message from the TV, with its bytes.
   Stream<ReceivedMessage> get messages => _messages.stream;

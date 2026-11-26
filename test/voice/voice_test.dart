@@ -199,6 +199,48 @@ void main() {
       expect(fake.fromClient.whereType<VoiceOpenMessage>(), isEmpty, reason: 'never acknowledged');
     });
 
+    test('a start retried right after a timeout takes the open that comes late, and closes nothing', () async {
+      fake.answerSearch = false;
+      final first = remote.startVoice();
+      await fake.received<KeyMessage>();
+      clock.advance(const Duration(seconds: 2));
+      await expectLater(first, throwsA(isA<TvTimeoutException>()));
+      final second = remote.startVoice(pace: false);
+      await fake.received<KeyMessage>(count: 2);
+      // The TV's open, answering the first Search, arrives while the second start waits.
+      await fake.sendMessage(RemoteEnvelope.fromTv(recorded('voiceOpen', outgoing: false, file: 'voice.txt').bytes));
+      final voice = await second;
+      expect(voice.isOpen, isTrue);
+      await voice.add(Uint8List(chunk));
+      await fake.received<VoiceAudioMessage>();
+      expect(fake.fromClient.whereType<VoiceCloseMessage>(), isEmpty);
+    });
+
+    test('the close of an open nobody waited for is confirmed by the end right after the next open', () async {
+      fake
+        ..answerSearch = false
+        ..answerVoiceClose = false;
+      final first = remote.startVoice();
+      await fake.received<KeyMessage>();
+      clock.advance(const Duration(seconds: 2));
+      await expectLater(first, throwsA(isA<TvTimeoutException>()));
+      final ended = recorded('voiceEnded', outgoing: false, file: 'voice.txt').bytes;
+      final open = recorded('voiceOpen', outgoing: false, file: 'voice.txt').bytes;
+      await fake.sendMessage(RemoteEnvelope.fromTv(open));
+      await fake.received<VoiceCloseMessage>();
+      // The TV confirms that close only right after the next open, with the same id: that end is not the new one's.
+      final starting = remote.startVoice(pace: false);
+      await fake.received<KeyMessage>(count: 2);
+      (await fake.connection.future).sendTogether([open, ended]);
+      final voice = await starting;
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(voice.isOpen, isTrue);
+      await fake.sendMessage(RemoteEnvelope.fromTv(ended));
+      clock.advance(TvVoiceSession.lateConfirmationWindow);
+      await voice.done.timeout(const Duration(seconds: 2));
+      expect(voice.endConfirmed, isTrue);
+    });
+
     test('addStream sends a stream of odd-sized pieces as whole chunks, the last padded', () async {
       final voice = await remote.startVoice(pace: false);
       final pieces = [for (var i = 0; i < 7; i++) Uint8List(chunk ~/ 3 + i)];

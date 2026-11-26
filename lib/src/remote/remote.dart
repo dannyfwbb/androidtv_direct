@@ -95,8 +95,7 @@ final class TvRemote {
   late final KeyHolds _holds = KeyHolds(_session);
   late final VolumeControl _volume = VolumeControl(_session);
   final TextInput _text;
-  TvVoiceSession? _voice;
-  bool _voiceStarting = false;
+  late final VoiceChannel _voice = VoiceChannel(_session);
 
   /// The TV, as it described itself when the session started.
   TvDevice get device => _session.device;
@@ -172,23 +171,8 @@ final class TvRemote {
   /// [ArgumentError] for a [timeout] that is not longer than zero, and what ended the session.
   Future<TvVoiceSession> startVoice({Duration timeout = const Duration(seconds: 2), bool pace = true}) async {
     checkPositive(timeout, 'timeout');
-    if (_voiceBusy) throw StateError('A voice session is open');
-    _voiceStarting = true;
-    try {
-      final previous = _voice;
-      return _voice = await startVoiceSession(
-        _session,
-        timeout: timeout,
-        pace: pace,
-        afterUnconfirmed: previous != null && !previous.endConfirmed,
-      );
-    } finally {
-      _voiceStarting = false;
-    }
+    return _voice.start(timeout: timeout, pace: pace);
   }
-
-  /// Whether a voice session is starting, or started and not done.
-  bool get _voiceBusy => _voiceStarting || (_voice != null && !_voice!.isDone);
 
   /// The text field that has the focus on the TV, or `null`. Always `null` without [TvFeature.ime] (TVs report text
   /// fields only to sessions with it) and once the session has ended; typing also needs [TvFeature.key].
