@@ -25,6 +25,7 @@ false_secrets:
   - /test/fixtures/identities/tv.pem
   - /test/fixtures/identities/client.pem
   - /test/fixtures/identities/other.pem
+  - /test/fixtures/identities/remote-tv.pem
 
 environment:
   sdk: ">=3.9.0 <4.0.0"

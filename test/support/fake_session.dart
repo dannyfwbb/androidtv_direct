@@ -74,6 +74,12 @@ final class FakeSession {
   /// Whether the volume keys change [volume] and report it, as a TV does. Off to test a TV that does not answer.
   bool answerVolumeKeys = true;
 
+  /// Whether the Search key opens a voice session (id 1, the recorded voice app), as the emulator's did.
+  bool answerSearch = true;
+
+  /// Whether a voice close is confirmed with the TV's own end message, as the emulator did.
+  bool answerVoiceClose = true;
+
   /// The level the volume keys move, from the recorded start report; the maximum stays the recorded one.
   late int volume = _recordedVolume.level!;
 
@@ -93,6 +99,10 @@ final class FakeSession {
       case TextEditMessage() when field != null:
         final answer = field!.onEdit(message);
         if (answer != null) send(c, answer.encodeEnvelope());
+      case VoiceCloseMessage() when answerVoiceClose:
+        send(c, recorded('voiceEnded', outgoing: false, file: 'voice.txt').bytes);
+      case KeyMessage(:final code) when code == TvKey.search.code && answerSearch:
+        send(c, recorded('voiceOpen', outgoing: false, file: 'voice.txt').bytes);
       case KeyMessage(:final code, :final action) when answerVolumeKeys && action != KeyAction.release:
         _volumeKey(c, code);
       case OpenLinkMessage(:final link) when link == null || !link.contains(':'):

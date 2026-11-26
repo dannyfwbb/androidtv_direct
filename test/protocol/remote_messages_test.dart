@@ -48,8 +48,8 @@ void main() {
       ('pong', 'session.txt'): PongMessage(id: 1),
       ('key', 'session.txt'): KeyMessage(code: 24, action: KeyAction.short),
       ('openLink', 'session.txt'): OpenLinkMessage(link: 'https://www.youtube.com'),
-      ('voiceOpen', 'messages.txt'): VoiceOpenMessage(voiceId: 1),
-      ('voiceClose', 'messages.txt'): VoiceCloseMessage(voiceId: 1),
+      ('voiceOpen', 'voice.txt'): VoiceOpenMessage(voiceId: 1),
+      ('voiceClose', 'voice.txt'): VoiceCloseMessage(voiceId: 1),
       ('textEdit', 'text.txt'): TextEditMessage(
         keyboardRevision: 198,
         fieldRevision: 284,
@@ -128,7 +128,7 @@ void main() {
     });
 
     test('a voice session names the voice app', () {
-      final open = fromTv<VoiceOpenMessage>('voiceOpen', 'messages.txt');
+      final open = fromTv<VoiceOpenMessage>('voiceOpen', 'voice.txt');
       expect((open.voiceId, open.packageName), (1, 'com.google.android.katniss'));
     });
   });
@@ -183,7 +183,13 @@ void main() {
 
     for (final (direction, decoders) in [('TV', remoteDecodersFromTv), ('client', remoteDecodersFromClient)]) {
       for (final MapEntry(key: field, value: decode) in decoders.entries) {
-        final bodies = [for (final s in seeds) ?_bodyOf(s, field)];
+        // Large bodies (20 KiB voice chunks) would make each of the 100 000 mutations copy them: a short audio
+        // message stands in for them.
+        final bodies = [
+          for (final s in seeds)
+            if (_bodyOf(s, field) case final body? when body.length < 1024) body,
+          if (field == VoiceAudioMessage.fieldNumber) VoiceAudioMessage(voiceId: 1, samples: Uint8List(64)).encode(),
+        ];
         test('message $field from the $direction', () {
           fuzz(decode, encode: (m) => m.encode(), seeds: bodies, seed: field);
         });

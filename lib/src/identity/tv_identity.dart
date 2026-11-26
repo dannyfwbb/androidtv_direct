@@ -15,6 +15,7 @@ import 'package:meta/meta.dart';
 final class TvIdentity {
   TvIdentity._(Uint8List certificateDer, this.fingerprint, this._publicKey, TvSubject subject)
     : certificateDer = certificateDer.asUnmodifiableView(),
+      _remoteService = subject.isRemoteService,
       product = subject.product,
       device = subject.device,
       model = subject.model,
@@ -50,6 +51,12 @@ final class TvIdentity {
   final String? macAddress;
 
   final RsaPublicKey _publicKey;
+  final bool _remoteService;
+
+  /// Whether the certificate is one a TV's remote service makes: its common name is `atvremote` or starts with
+  /// `atvremote/`, or its dnQualifier runs on into `/CN=atvremote/` (the layouts [TvSubject] reads).
+  @internal
+  bool get isRemoteService => _remoteService;
 
   /// The TV's public key, for the pairing secret.
   @internal
@@ -66,7 +73,7 @@ final class TvIdentity {
 /// name without the `atvremote` prefix is not read. The model is everything after the device, so it may contain `/`.
 final class TvSubject {
   /// Creates the description.
-  const TvSubject({this.product, this.device, this.model, this.macAddress});
+  const TvSubject({this.product, this.device, this.model, this.macAddress, this.isRemoteService = false});
 
   /// Reads the subject's common name and dnQualifier.
   factory TvSubject.parse({String? commonName, String? dnQualifier}) {
@@ -79,19 +86,21 @@ final class TvSubject {
     }
     final segments = tail == null || tail.isEmpty ? <String>[] : tail.split('/');
     final mac = segments.isNotEmpty && _mac.hasMatch(segments.last) ? segments.removeLast().toUpperCase() : null;
-    return TvSubject.fromNames(segments.isNotEmpty ? segments.join('/') : qualifier, mac);
+    final names = segments.isNotEmpty ? segments.join('/') : qualifier;
+    return TvSubject.fromNames(names, mac, isRemoteService: tail != null);
   }
 
   /// `<product>/<device>/<model>` and the address; names that are not there are `null`.
-  factory TvSubject.fromNames(String? names, String? macAddress) {
+  factory TvSubject.fromNames(String? names, String? macAddress, {bool isRemoteService = false}) {
     final parts = names?.split('/') ?? const <String>[];
-    if (parts.length < 3) return TvSubject(macAddress: macAddress);
+    if (parts.length < 3) return TvSubject(macAddress: macAddress, isRemoteService: isRemoteService);
     String? named(String part) => part.isEmpty ? null : part;
     return TvSubject(
       product: named(parts[0]),
       device: named(parts[1]),
       model: named(parts.sublist(2).join('/')),
       macAddress: macAddress,
+      isRemoteService: isRemoteService,
     );
   }
 
@@ -116,4 +125,7 @@ final class TvSubject {
 
   /// The network address, upper-case.
   final String? macAddress;
+
+  /// Whether the subject has the `atvremote` common name a TV's remote service writes.
+  final bool isRemoteService;
 }

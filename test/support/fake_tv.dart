@@ -14,11 +14,12 @@ import 'fixtures.dart';
 import 'hex.dart';
 
 /// A fake TV that trusts the test client (`test/fixtures/identities/client.pem`), closed when the test ends.
-Future<FakeTv> startFakeTv({FakeTvHandler? onPairing, FakeTvHandler? onRemote}) async {
+Future<FakeTv> startFakeTv({FakeTvHandler? onPairing, FakeTvHandler? onRemote, String identityName = 'tv'}) async {
   final tv = await FakeTv.start(
     trusted: [testIdentity('client').certificatePem],
     onPairing: onPairing,
     onRemote: onRemote,
+    identityName: identityName,
   );
   addTearDown(tv.close);
   return tv;

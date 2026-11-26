@@ -10,8 +10,10 @@
 | [keys.md](keys.md) | Keys, the key table, power and volume |
 | [links.md](links.md) | Opening app links, and the links TVs refuse |
 | [text.md](text.md) | The focused text field, `setText`, binding to a text box |
+| [voice.md](voice.md) | Voice sessions: audio format, chunks, pacing |
+| [discovery.md](discovery.md) | Finding TVs: mDNS, platform browsers, probing and scanning |
 | [errors.md](errors.md) | The error type, its codes and when each one is raised |
 | [security.md](security.md) | The security model: what pairing proves, pinning the TV's key, storing the client's key, what is traced |
 | [compatibility.md](compatibility.md) | Which TVs speak the protocol, service versions, known differences between TVs |
 
-More pages arrive with the code: voice, discovery. Every public class and member is documented in the code; `dart doc` generates the API reference, which pub.dev shows.
+Every public class and member is documented in the code; `dart doc` generates the API reference, which pub.dev shows.

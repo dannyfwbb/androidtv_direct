@@ -65,6 +65,19 @@ void main() {
       expect(read('atvremote/p/atvremote/m/11:22:33:44:55:66'), ['p', 'atvremote', 'm', '11:22:33:44:55:66']);
     });
 
+    test('the remote service is recognised by its common name in every layout', () {
+      bool service(String? cn, [String? qualifier]) =>
+          TvSubject.parse(commonName: cn, dnQualifier: qualifier).isRemoteService;
+      expect(service('atvremote/AA:BB:CC:DD:EE:FF', 'p/d/m'), isTrue);
+      expect(service('atvremote/p/d/m/AA:BB:CC:DD:EE:FF'), isTrue);
+      expect(service(null, 'p/d/m/CN=atvremote/AA:BB:CC:DD:EE:FF'), isTrue);
+      expect(service('atvremote'), isTrue);
+      expect(service('atvremoteX/p'), isFalse);
+      expect(service('something else', 'atvremote/x'), isFalse);
+      expect(identityOf('pairing/vector/tv.crt.pem').isRemoteService, isTrue);
+      expect(identityOf('certificates/unknown.crt.pem').isRemoteService, isFalse);
+    });
+
     test('too few names leave them empty; the address still counts', () {
       expect(read('atvremote/d/11:22:33:44:55:66', 'p/d'), [null, null, null, '11:22:33:44:55:66']);
       expect(read(null), [null, null, null, null]);

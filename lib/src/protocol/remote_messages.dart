@@ -62,6 +62,7 @@ final Map<int, RemoteEnvelope Function(Uint8List)> remoteDecodersFromTv = {
   KeyboardReport.fieldNumber: KeyboardReport.decode,
   FieldReport.fieldNumber: FieldReport.decode,
   VoiceOpenMessage.fieldNumber: VoiceOpenMessage.decode,
+  VoiceEndedMessage.fieldNumber: VoiceEndedMessage.decode,
   PowerReport.fieldNumber: PowerReport.decode,
   VolumeReport.fieldNumber: VolumeReport.decode,
 };

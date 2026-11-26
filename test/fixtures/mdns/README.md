@@ -1,0 +1,3 @@
+# mDNS packets
+
+- `avahi_legacy_answer.bin`: Avahi's answer to a legacy unicast PTR query (from a port other than 5353, id 0x1234) for `_androidtvdirect-test._tcp.local`, recorded on 2026-11-26 with `tool/mdns_publish.py` publishing `Test TV` on port 6466 with TXT `bt=AA:BB:CC:DD:EE:FF`. The host name label was replaced by `h` repeated to the same length, the IPv4 address by 192.168.0.20 and the link-local IPv6 address by fe80::14, so offsets and compression pointers are untouched. Legacy answers echo the question and cap TTLs at 10 s. A test type, not a TV's, so that recording it showed no fake TV to remote apps on the network.

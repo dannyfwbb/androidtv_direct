@@ -18,9 +18,12 @@ void main() {
   });
 
   test('splitting the recorded stream at every position gives the same frames', () {
+    // Every message but the 20 KiB voice chunks, which the byte-by-byte test below covers: splitting a stream at every
+    // position costs the square of its length.
     final bodies = [
       for (final file in recordingFiles)
-        for (final m in recordedMessages(file)) m.bytes,
+        for (final m in recordedMessages(file))
+          if (m.bytes.length < 1024) m.bytes,
     ];
     final stream = Uint8List.fromList([for (final body in bodies) ...encodeFrame(body)]);
     for (var split = 0; split <= stream.length; split++) {

@@ -18,6 +18,7 @@ import 'package:androidtv_direct/src/remote/volume.dart' as volume;
 import 'package:androidtv_direct/src/text/text_field.dart';
 import 'package:androidtv_direct/src/trace.dart';
 import 'package:androidtv_direct/src/transport/tv_socket.dart';
+import 'package:androidtv_direct/src/voice/voice.dart';
 
 /// A remote session with a paired TV.
 ///
@@ -86,6 +87,8 @@ final class TvRemote {
   final RemoteSession _session;
   late final KeyHolds _holds = KeyHolds(_session);
   final TextInput _text;
+  TvVoiceSession? _voice;
+  bool _voiceStarting = false;
 
   /// The TV, as it described itself when the session started.
   TvDevice get device => _session.device;
@@ -144,6 +147,24 @@ final class TvRemote {
     Duration stepTimeout = const Duration(seconds: 2),
     Duration timeout = const Duration(seconds: 15),
   }) => volume.setVolume(_session, level, stepTimeout: stepTimeout, timeout: timeout);
+
+  /// Opens a voice session: presses Search and waits up to [timeout] for the TV's voice search to open it. Feed it the
+  /// app's microphone audio (16-bit PCM, mono, 8 kHz) and [TvVoiceSession.close] it when the user stops talking.
+  ///
+  /// [pace] sends the audio in real time, as a microphone delivers it; without it, chunks go out as fast as they are
+  /// added. Throws [TvNotSupportedException] without [TvFeature.voice] and [TvFeature.key] (voice is not in
+  /// [TvFeature.defaults]: ask for it at [connect]), [TvTimeoutException] when the TV does not open the session in
+  /// time, [StateError] while another voice session of this remote is starting or not [TvVoiceSession.done], and
+  /// what ended the session.
+  Future<TvVoiceSession> startVoice({Duration timeout = const Duration(seconds: 2), bool pace = true}) async {
+    if (_voiceStarting || !(_voice?.isDone ?? true)) throw StateError('A voice session is open');
+    _voiceStarting = true;
+    try {
+      return _voice = await startVoiceSession(_session, timeout: timeout, pace: pace);
+    } finally {
+      _voiceStarting = false;
+    }
+  }
 
   /// The text field that has the focus on the TV, or `null`. Always `null` without [TvFeature.ime] (TVs report text
   /// fields only to sessions with it); typing also needs [TvFeature.key].

@@ -10,14 +10,14 @@ import 'package:androidtv_direct/src/crypto/rsa.dart';
 
 import 'hex.dart';
 
-/// One line of `test/fixtures/remote/messages.txt`.
+/// One line of a recording under `test/fixtures/remote/`.
 typedef RecordedMessage = ({bool outgoing, int port, String name, Uint8List bytes});
 
 /// The path of a file under `test/fixtures/`.
 String fixturePath(String relative) => 'test/fixtures/$relative';
 
 /// The recordings under `test/fixtures/remote/`.
-const List<String> recordingFiles = ['session.txt', 'text.txt', 'messages.txt'];
+const List<String> recordingFiles = ['session.txt', 'text.txt', 'voice.txt'];
 
 /// Every message in the recording [file] under `test/fixtures/remote/`, in file order.
 List<RecordedMessage> recordedMessages([String file = 'session.txt']) => [

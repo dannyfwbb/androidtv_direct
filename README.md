@@ -2,7 +2,7 @@
 
 A remote control for Android TV and Google TV devices in pure Dart. It speaks the TV's own remote protocol (the one Google's TV remote apps use) directly: no app on the TV, no developer options, no ADB, no platform channels, no native code. One `dart:io` implementation for Android, iOS, macOS, Windows and Linux.
 
-> **Status: in development, not yet published.** The protocol research and the design are done, and a prototype has paired with and driven the Android TV emulator; the package's code is being written. [doc/scope.md](doc/scope.md) shows the state of every area. The API below is the planned one and may still change before 0.1.0.
+> **Status: not yet published.** Everything below is built and tested against a fake TV. Pairing, the session, keys, power, volume, links, text and the voice sequence were also run on the Android TV emulator; discovery against a local mDNS responder. Real TVs (and speech recognition) are still to be checked before 1.0. [doc/scope.md](doc/scope.md) shows the state of every area. Names may still change before the first release.
 
 ```dart
 import 'package:androidtv_direct/androidtv_direct.dart';
@@ -16,7 +16,12 @@ final paired = await pairing.finish(await askUserForCode());
 // Keep paired.fingerprint: it identifies this TV from now on.
 
 // Every time: connect and control.
-final remote = await TvRemote.connect('192.168.1.30', identity: me, fingerprint: paired.fingerprint);
+final remote = await TvRemote.connect(
+  '192.168.1.30',
+  identity: me,
+  fingerprint: paired.fingerprint,
+  features: {...TvFeature.defaults, TvFeature.ime},   // ime: the TV's text field
+);
 print('${remote.device.vendor} ${remote.device.model}, on: ${remote.state.power}');
 
 remote.press(TvKey.dpadDown);
@@ -27,7 +32,7 @@ remote.openLink('https://www.youtube.com');
 await remote.close();
 ```
 
-## What it will do
+## What it does
 
 Everything the TV's remote protocol offers:
 
@@ -38,7 +43,7 @@ Everything the TV's remote protocol offers:
 - **App links**: open a deep link or a store page on the TV.
 - **Voice**: stream 16-bit PCM audio from the app's microphone to the TV's voice search.
 - **Discovery**: an mDNS browser for TVs that announce the remote service, a hook for platform browsers, and recognition of TVs whose remote service is too old.
-- **Device identity**: model and network address details from the TV's certificate, before pairing.
+- **Device identity**: model and network address details from the TV's certificate, before pairing, without anything appearing on the TV; a helper to scan addresses the app chooses.
 
 And what a library needs beyond that: the TV's key checked on every connection against the one stored at pairing (a required argument), so typed text cannot go to another device that took the TV's address; one sealed exception type with stable codes; deadlines on every step; detection of TVs that went away without closing the connection; no files, no global state; tracing that never logs typed text unless asked to.
 
@@ -53,7 +58,8 @@ Android, iOS, macOS, Windows and Linux: everything with `dart:io`, from Dart or 
 ## Documentation
 
 - [doc/README.md](doc/README.md): scope, protocol notes, errors, security model, compatibility.
-- Every public class and member will be documented in the API reference.
+- Every public class and member is documented in the API reference.
+- [example/](example/): pairing and control from the command line, discovery, voice, a platform browser adapter.
 
 ## Versioning
 

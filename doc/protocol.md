@@ -141,7 +141,7 @@ Every message is an envelope that carries exactly one of these fields (the names
 | 21 | keyboard report (TV → client) / text edit (client → TV) | both |
 | 22 | field report: the field's content | TV → client |
 | 30 | voice open | both |
-| 31 | voice audio | client → TV |
+| 31 | voice audio (client → TV); voice ended (TV → client) | both |
 | 32 | voice close | client → TV |
 | 40 | power report | TV → client |
 | 50 | volume report | TV → client (the same field from the client, a level request, is ignored) |
@@ -200,6 +200,9 @@ The link is given to Android as a "view" intent on the TV; the app that handles 
 4. Client: voice begin with the same session number.
 5. Client: voice audio messages, 1 the session number, 2 samples: 16-bit little-endian PCM, mono, 8000 samples per second. The package sends 20 480 bytes per message (1.28 seconds of audio), the last one padded: some TVs close the connection on larger messages, some refuse smaller ones, and one recognised nothing in 8 KiB messages.
 6. Client: voice end with the session number.
+7. TV: message 31 with 1 = the session number: the TV ended the voice session (seen on the emulator right after the client's voice end).
+
+On the emulator a second Search right after a session ended did not open a new one within two seconds; one a few seconds later did.
 
 ## Discovery
 

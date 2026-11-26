@@ -54,25 +54,25 @@ States: **planned** (designed, not written), **in progress**, **built** (impleme
 
 | Area | State |
 | --- | --- |
-| Voice sessions: start, stream 16-bit 8 kHz mono PCM, end, cancel | planned |
+| Voice sessions: start, stream 16-bit 8 kHz mono PCM, end, cancel | built (recognition of real speech still to be checked on a TV) |
 
 ### Discovery
 
 | Area | State |
 | --- | --- |
-| mDNS browsing for `_androidtvremote2._tcp`, IPv4 and IPv6 | planned |
-| Recognition of TVs with the older protocol (`_androidtvremote._tcp`) | planned |
-| A hook for platform browsers (iOS, Android) | planned |
-| A helper to probe addresses the app gives, a few at a time (which addresses stays with the app) | planned |
+| mDNS browsing for `_androidtvremote2._tcp`, IPv4 and IPv6 | built |
+| Recognition of TVs with the older protocol (`_androidtvremote._tcp`) | built |
+| A hook for platform browsers (iOS, Android) | built (with an example adapter) |
+| A helper to probe addresses the app gives, a few at a time (which addresses stays with the app) | built |
 
 ### Library qualities
 
 | Area | State |
 | --- | --- |
-| One sealed exception type with stable codes | in progress: the type is built, the operations that throw it are not |
-| Tracing by message kind and size; payloads only on request | in progress: the hook is built |
-| A fake TV and recorded byte exchanges in the tests | in progress: every recorded message is read and written back byte for byte; the fake TV runs scripts over TLS |
-| API documentation on every public member | planned |
+| One sealed exception type with stable codes | built |
+| Tracing by message kind and size; payloads only on request | built |
+| A fake TV and recorded byte exchanges in the tests | built: the package's own recordings of pairing, a session, text and voice; a fake TV with pairing, session, text field and voice |
+| API documentation on every public member | built |
 
 ## Left to the app, on purpose
 

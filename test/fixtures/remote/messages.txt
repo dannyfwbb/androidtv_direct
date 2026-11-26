@@ -1,6 +1,0 @@
-# Voice messages recorded on 2026-11-13 from an Android TV Remote Service 5.99.551144881 on an Android 14 emulator
-# image by another client. Kept until the package records its own voice session. One per line: direction (out:
-# client to TV), port, this package's name for the message, hex.
-in 6466 voiceOpen f2011e0801121a636f6d2e676f6f676c652e616e64726f69642e6b61746e697373
-out 6466 voiceOpen f201020801
-out 6466 voiceClose 8202020801

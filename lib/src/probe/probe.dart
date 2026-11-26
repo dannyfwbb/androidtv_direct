@@ -6,6 +6,7 @@ import 'package:androidtv_direct/src/errors.dart';
 import 'package:androidtv_direct/src/identity/client_identity.dart';
 import 'package:androidtv_direct/src/identity/tv_identity.dart';
 import 'package:androidtv_direct/src/pairing/pairing.dart';
+import 'package:androidtv_direct/src/probe/scan.dart';
 import 'package:androidtv_direct/src/trace.dart';
 import 'package:androidtv_direct/src/transport/tv_socket.dart';
 
@@ -54,4 +55,23 @@ abstract final class TvProbe {
         _throwaway = null;
         return Future<TvClientIdentity>.error(error, stack);
       });
+
+  /// Probes many hosts, for a scan: at most [concurrency] connections at once, each limited by [timeout]. Emits the
+  /// hosts that answer as a TV's remote service (a certificate made by it), in the order they answer; hosts that do
+  /// not answer, refuse or speak something else are left out. Nothing appears on the TVs. Which hosts to try (a
+  /// subnet, a list) is the caller's policy. Pausing the subscription stops new probes; cancelling lets running ones
+  /// finish.
+  static Stream<TvScanResult> scan(
+    Iterable<Object> hosts, {
+    int port = TvPairing.defaultPort,
+    int concurrency = 16,
+    Duration timeout = const Duration(seconds: 1),
+    TvClientIdentity? identity,
+    TvClock clock = TvClock.system,
+    DateTime Function() now = DateTime.now,
+  }) => scanHosts(
+    hosts,
+    concurrency: concurrency,
+    identify: (host) => identify(host, port: port, identity: identity, timeout: timeout, clock: clock, now: now),
+  );
 }

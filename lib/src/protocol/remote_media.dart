@@ -129,6 +129,29 @@ final class VoiceAudioMessage extends RemoteEnvelope {
     ..optionalBytes(2, samples);
 }
 
+/// TV → client: the TV ended the voice session (field 31, the field the client sends audio in). Seen after the
+/// client's [VoiceCloseMessage].
+final class VoiceEndedMessage extends RemoteEnvelope {
+  /// Creates the message.
+  VoiceEndedMessage({this.voiceId, Iterable<ProtoField> unknownFields = const []})
+    : super(fieldNumber, 'voiceEnded', unknownFields);
+
+  /// Reads the message.
+  factory VoiceEndedMessage.decode(Uint8List bytes) {
+    final fields = ProtoFields.read(bytes);
+    return VoiceEndedMessage(voiceId: fields.integer(1), unknownFields: fields.unknown);
+  }
+
+  /// Its envelope field.
+  static const int fieldNumber = 31;
+
+  /// The session's id (field 1).
+  final int? voiceId;
+
+  @override
+  void writeFields(ProtoWriter writer) => writer.optionalVarint(1, voiceId);
+}
+
 /// Client → TV: the voice session ends (field 32).
 final class VoiceCloseMessage extends RemoteEnvelope {
   /// Creates the message.
