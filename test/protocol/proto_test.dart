@@ -4,6 +4,7 @@
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:androidtv_direct/src/bytes.dart';
 import 'package:androidtv_direct/src/protocol/proto.dart';
 import 'package:test/test.dart';
 
@@ -22,7 +23,7 @@ void main() {
       ]);
       expect(fields[0].asInt, 150);
       expect(fields[1].asString, 'hi');
-      expect(hex((ProtoWriter()..raw(fields)).toBytes()), '089601120268691901020304050607082d01020304');
+      expect(hexEncode((ProtoWriter()..raw(fields)).toBytes()), '089601120268691901020304050607082d01020304');
     });
 
     test('refuses groups, unknown wire types and field number zero', () {
@@ -89,7 +90,7 @@ void main() {
         ..varint(1, 1)
         ..bytes(2, [0xaa])
         ..varint(1, 2);
-      expect(hex(writer.toBytes()), '080108021201aa1a0163');
+      expect(hexEncode(writer.toBytes()), '080108021201aa1a0163');
     });
 
     test('optional methods skip null and write explicit zeros', () {
@@ -98,7 +99,7 @@ void main() {
         ..optionalVarint(2, 0)
         ..optionalString(4, null)
         ..optionalString(5, '');
-      expect(hex(writer.toBytes()), '10002a00');
+      expect(hexEncode(writer.toBytes()), '10002a00');
     });
 
     test('refuses invalid field numbers', () {

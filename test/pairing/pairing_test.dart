@@ -5,6 +5,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:androidtv_direct/androidtv_direct.dart';
+import 'package:androidtv_direct/src/bytes.dart';
 import 'package:androidtv_direct/src/crypto/pairing_secret.dart';
 import 'package:test/test.dart';
 
@@ -12,7 +13,6 @@ import '../support/fake_clock.dart';
 import '../support/fake_pairing.dart';
 import '../support/fake_tv.dart';
 import '../support/fixtures.dart';
-import '../support/hex.dart';
 import '../support/wait.dart';
 
 void main() {
@@ -63,7 +63,7 @@ void main() {
     final otherNonce = [int.parse(code.substring(2, 4), radix: 16) ^ 1, int.parse(code.substring(4), radix: 16)];
     final hash = pairingHash(client: identity.publicKey, tv: pairing.tv.publicKey, nonce: otherNonce);
     await expectLater(
-      pairing.finish(hex([hash[0], ...otherNonce])),
+      pairing.finish(hexEncode([hash[0], ...otherNonce])),
       throwsA(isA<TvPairingRefusedException>().having((e) => e.status, 'status', 402)),
     );
     expect(pairing.isOpen, isFalse);

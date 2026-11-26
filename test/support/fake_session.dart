@@ -10,6 +10,7 @@ import 'package:androidtv_direct/src/protocol/remote_messages.dart';
 import 'fake_field.dart';
 import 'fake_tv.dart';
 import 'fixtures.dart';
+import 'wait.dart';
 
 /// How the fake TV's session start goes wrong.
 enum SessionFault {
@@ -27,7 +28,10 @@ enum SessionFault {
 /// activation, the start reports, then whatever the test sends. Every message from the client lands in [fromClient].
 final class FakeSession {
   /// A TV offering [offered] features, or misbehaving with [fault].
-  FakeSession({this.offered = 639, this.fault});
+  FakeSession({this.offered = recordedFeatures, this.fault});
+
+  /// The feature bits the recorded TV offers.
+  static const int recordedFeatures = 639;
 
   /// The feature bits the TV offers.
   final int offered;
@@ -40,6 +44,12 @@ final class FakeSession {
 
   /// The client's messages, in order.
   final List<RemoteEnvelope> fromClient = [];
+
+  /// The client's messages of type [T], once at least [count] of them arrived.
+  Future<List<T>> received<T>({int count = 1}) async {
+    await until(() => fromClient.whereType<T>().length >= count);
+    return fromClient.whereType<T>().toList();
+  }
 
   /// Plays the TV's side on [c].
   Future<void> serve(FakeTvConnection c) async {

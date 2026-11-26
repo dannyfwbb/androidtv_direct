@@ -6,6 +6,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:androidtv_direct/androidtv_direct.dart';
+import 'package:androidtv_direct/src/bytes.dart';
 import 'package:androidtv_direct/src/protocol/proto.dart';
 import 'package:androidtv_direct/src/protocol/remote_messages.dart';
 import 'package:androidtv_direct/src/remote/session.dart';
@@ -15,7 +16,6 @@ import '../support/fake_clock.dart';
 import '../support/fake_session.dart';
 import '../support/fake_tv.dart';
 import '../support/fixtures.dart';
-import '../support/hex.dart';
 import '../support/wait.dart';
 
 void main() {
@@ -58,7 +58,10 @@ void main() {
       expect(remote.state.volume, const TvVolume(level: 9, maximum: 15, muted: false));
       final [setup, activate] = fake.fromClient.take(2).toList();
       final mask = TvFeature.maskOf(TvFeature.defaults);
-      expect(hex(setup.encodeEnvelope()), hex(SetupMessage(features: mask, device: clientDevice).encodeEnvelope()));
+      expect(
+        hexEncode(setup.encodeEnvelope()),
+        hexEncode(SetupMessage(features: mask, device: clientDevice).encodeEnvelope()),
+      );
       expect((activate as ActivateMessage).features, mask);
       await remote.close();
     });
@@ -157,7 +160,7 @@ void main() {
 
     test('answers pings with their id', () async {
       await fake.sendMessage(PingMessage(id: 7));
-      await until(() => fake.fromClient.whereType<PongMessage>().isNotEmpty);
+      await fake.received<PongMessage>();
       expect(fake.fromClient.whereType<PongMessage>().single.id, 7);
     });
 
@@ -186,7 +189,7 @@ void main() {
     test('a message from the TV counts as activity', () async {
       clock.advance(const Duration(seconds: 10));
       await fake.sendMessage(PingMessage(id: 1));
-      await until(() => fake.fromClient.whereType<PongMessage>().isNotEmpty);
+      await fake.received<PongMessage>();
       clock.advance(const Duration(seconds: 10));
       expect(remote.isClosed, isFalse);
     });
@@ -239,7 +242,7 @@ void main() {
       final bytes = sessionMessage('volumeReport.2', outgoing: false);
       FakeSession.send(await fake.connection.future, bytes);
       await until(() => raw.isNotEmpty);
-      expect((raw.single.field, hex(raw.single.envelope)), (VolumeReport.fieldNumber, hex(bytes)));
+      expect((raw.single.field, hexEncode(raw.single.envelope)), (VolumeReport.fieldNumber, hexEncode(bytes)));
     });
 
     test('raw messages both ways', () async {
@@ -247,9 +250,9 @@ void main() {
       remote.rawMessages.where((m) => m.field == 123).listen(raw.add);
       await fake.sendMessage(UnknownEnvelope(ProtoField.bytes(123, [5])));
       await until(() => raw.isNotEmpty);
-      expect((raw.single.field, hex(raw.single.envelope)), (123, 'da070105'));
+      expect((raw.single.field, hexEncode(raw.single.envelope)), (123, 'da070105'));
       remote.sendRaw(124, const [6]);
-      await until(() => fake.fromClient.whereType<UnknownEnvelope>().isNotEmpty);
+      await fake.received<UnknownEnvelope>();
       expect(fake.fromClient.whereType<UnknownEnvelope>().single.field, 124);
     });
   });

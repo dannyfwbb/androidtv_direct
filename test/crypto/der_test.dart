@@ -1,15 +1,14 @@
 // Copyright 2026 The androidtv_direct authors
 // SPDX-License-Identifier: Apache-2.0
 
+import 'package:androidtv_direct/src/bytes.dart';
 import 'package:androidtv_direct/src/crypto/der.dart';
 import 'package:test/test.dart';
 
-import '../support/hex.dart';
-
 void main() {
   test('object identifiers', () {
-    expect(hex(Der.objectIdentifier('1.2.840.113549.1.1.1')), '06092a864886f70d010101');
-    expect(hex(Der.objectIdentifier('2.5.29.19')), '0603551d13');
+    expect(hexEncode(Der.objectIdentifier('1.2.840.113549.1.1.1')), '06092a864886f70d010101');
+    expect(hexEncode(Der.objectIdentifier('2.5.29.19')), '0603551d13');
     final parsed = DerElement.parse(Der.objectIdentifier('1.2.840.113549.1.1.11'));
     expect(parsed.objectIdentifier, '1.2.840.113549.1.1.11');
   });
@@ -18,17 +17,17 @@ void main() {
     for (final oid in ['2.999.3', '2.100.1', '1.39.4', '0.0', '1.2.4294967295']) {
       expect(DerElement.parse(Der.objectIdentifier(oid)).objectIdentifier, oid);
     }
-    expect(hex(Der.objectIdentifier('2.999.3')), '0603883703');
+    expect(hexEncode(Der.objectIdentifier('2.999.3')), '0603883703');
     expect(() => Der.objectIdentifier('1.40'), throwsArgumentError);
     expect(() => Der.objectIdentifier('3.1'), throwsArgumentError);
     expect(() => DerElement.parse([0x06, 0x02, 0x2a, 0x86]).objectIdentifier, throwsFormatException);
   });
 
   test('integers are minimal two’s complement', () {
-    expect(hex(Der.integer(BigInt.zero)), '020100');
-    expect(hex(Der.integer(BigInt.from(127))), '02017f');
-    expect(hex(Der.integer(BigInt.from(128))), '02020080');
-    expect(hex(Der.integer(BigInt.from(65537))), '0203010001');
+    expect(hexEncode(Der.integer(BigInt.zero)), '020100');
+    expect(hexEncode(Der.integer(BigInt.from(127))), '02017f');
+    expect(hexEncode(Der.integer(BigInt.from(128))), '02020080');
+    expect(hexEncode(Der.integer(BigInt.from(65537))), '0203010001');
     final big = BigInt.parse('ff' * 40, radix: 16);
     expect(DerElement.parse(Der.integer(big)).integer, big);
   });
@@ -36,7 +35,7 @@ void main() {
   test('lengths of 128 bytes and more use the long form', () {
     final content = List.filled(300, 7);
     final encoded = Der.octetString(content);
-    expect(hex(encoded.sublist(0, 4)), '0482012c');
+    expect(hexEncode(encoded.sublist(0, 4)), '0482012c');
     expect(DerElement.parse(encoded).octets, content);
   });
 
@@ -81,7 +80,7 @@ void main() {
   test('elements keep their whole encoding', () {
     final inner = Der.sequence([Der.smallInteger(5)]);
     final outer = DerElement.parse(Der.sequence([Der.nullValue(), inner]));
-    expect(hex(outer.sequence[1].encoded), hex(inner));
+    expect(hexEncode(outer.sequence[1].encoded), hexEncode(inner));
   });
 
   test('string elements read as text', () {

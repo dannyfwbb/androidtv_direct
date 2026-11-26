@@ -6,6 +6,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:androidtv_direct/src/bytes.dart';
 import 'package:androidtv_direct/src/protocol/frame.dart';
 import 'package:test/test.dart';
 
@@ -63,7 +64,7 @@ void main() {
     expect(remote.socket.peerCertificate!.der, tv.certificateDer);
     remote.send(unhex('4a020801'));
     await remote.closed.future.timeout(const Duration(seconds: 5));
-    expect(remote.frames.map(hex), ['c202020801', hex(Uint8List(3000))]);
+    expect(remote.frames.map(hexEncode), ['c202020801', hexEncode(Uint8List(3000))]);
     expect(tv.errors, isEmpty);
   });
 
@@ -126,7 +127,7 @@ void main() {
       addTearDown(tv.close);
       final remote = await TestClient.connect(tv.remotePort);
       await remote.closed.future.timeout(const Duration(seconds: 5));
-      expect(remote.frames.map(hex), [hex(Uint8List(50)), hex(Uint8List(50))]);
+      expect(remote.frames.map(hexEncode), [hexEncode(Uint8List(50)), hexEncode(Uint8List(50))]);
       expect(remote.chunkSizes.fold(0, (a, b) => a + b), 102);
       // How reads split is up to the network stack; only the extremes are certain enough to check.
       if (mode == FakeTvChunking.coalesce) expect(remote.chunkSizes, [102]);

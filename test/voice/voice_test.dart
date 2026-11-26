@@ -1,18 +1,17 @@
 // Copyright 2026 The androidtv_direct authors
 // SPDX-License-Identifier: Apache-2.0
 
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:androidtv_direct/androidtv_direct.dart';
+import 'package:androidtv_direct/src/bytes.dart';
 import 'package:androidtv_direct/src/protocol/remote_messages.dart';
 import 'package:test/test.dart';
 
 import '../support/fake_clock.dart';
+import '../support/fake_remote.dart';
 import '../support/fake_session.dart';
-import '../support/fake_tv.dart';
 import '../support/fixtures.dart';
-import '../support/hex.dart';
 import '../support/wait.dart';
 
 const int chunk = TvVoiceSession.chunkBytes;
@@ -23,18 +22,8 @@ void main() {
   late TvRemote remote;
 
   Future<void> connect({Set<TvFeature> features = const {TvFeature.key, TvFeature.voice}}) async {
-    fake = FakeSession();
-    clock = FakeClock();
-    final tv = await startFakeTv(onRemote: fake.serve);
-    remote = await TvRemote.connect(
-      InternetAddress.loopbackIPv4,
-      port: tv.remotePort,
-      identity: testClient(),
-      fingerprint: null,
-      features: features,
-      clock: clock,
-    );
-    addTearDown(remote.close);
+    final connected = await FakeRemote.connect(features: features);
+    (fake, clock, remote) = (connected.session, connected.clock, connected.remote);
   }
 
   List<VoiceAudioMessage> audio() => fake.fromClient.whereType<VoiceAudioMessage>().toList();
@@ -45,10 +34,10 @@ void main() {
     final voice = await remote.startVoice();
     expect(voice.voiceId, 1);
     expect(fake.fromClient.whereType<KeyMessage>().single.code, TvKey.search.code);
-    await until(() => fake.fromClient.whereType<VoiceOpenMessage>().isNotEmpty);
+    await fake.received<VoiceOpenMessage>();
     expect(
-      hex(fake.fromClient.whereType<VoiceOpenMessage>().single.encodeEnvelope()),
-      hex(recorded('voiceOpen', outgoing: true, file: 'voice.txt').bytes),
+      hexEncode(fake.fromClient.whereType<VoiceOpenMessage>().single.encodeEnvelope()),
+      hexEncode(recorded('voiceOpen', outgoing: true, file: 'voice.txt').bytes),
     );
   });
 
@@ -57,11 +46,11 @@ void main() {
     await voice.add(Uint8List(chunk * 2 + 100));
     await until(() => audio().length == 2);
     await voice.close();
-    await until(() => fake.fromClient.whereType<VoiceCloseMessage>().isNotEmpty);
+    await fake.received<VoiceCloseMessage>();
     expect(audio().map((a) => a.samples!.length), [chunk, chunk, chunk]);
     expect(
-      hex(fake.fromClient.whereType<VoiceCloseMessage>().single.encodeEnvelope()),
-      hex(recorded('voiceClose', outgoing: true, file: 'voice.txt').bytes),
+      hexEncode(fake.fromClient.whereType<VoiceCloseMessage>().single.encodeEnvelope()),
+      hexEncode(recorded('voiceClose', outgoing: true, file: 'voice.txt').bytes),
     );
     expect(voice.isOpen, isFalse);
   });
@@ -86,7 +75,7 @@ void main() {
     final voice = await remote.startVoice();
     await voice.add(Uint8List(chunk * 3));
     voice.cancel();
-    await until(() => fake.fromClient.whereType<VoiceCloseMessage>().isNotEmpty);
+    await fake.received<VoiceCloseMessage>();
     expect(audio(), hasLength(1));
     await expectLater(voice.add(Uint8List(1)), throwsStateError);
   });
@@ -128,7 +117,7 @@ void main() {
     final voice = await remote.startVoice(pace: false);
     fake.answerVoiceClose = false;
     final closing = voice.close();
-    await until(() => fake.fromClient.whereType<VoiceCloseMessage>().isNotEmpty);
+    await fake.received<VoiceCloseMessage>();
     expect(voice.isDone, isFalse);
     clock.advance(TvVoiceSession.endConfirmation);
     await closing;
@@ -147,7 +136,7 @@ void main() {
     final voice = await remote.startVoice(pace: false);
     expect(remote.startVoice, throwsStateError);
     await voice.close();
-    await until(() => fake.fromClient.whereType<VoiceOpenMessage>().isNotEmpty);
+    await fake.received<VoiceOpenMessage>();
     expect(await remote.startVoice(), isA<TvVoiceSession>());
   });
 
@@ -160,7 +149,7 @@ void main() {
   test('a TV that does not open a session times out', () async {
     fake.answerSearch = false;
     final outcome = remote.startVoice();
-    await until(() => fake.fromClient.whereType<KeyMessage>().isNotEmpty);
+    await fake.received<KeyMessage>();
     clock.advance(const Duration(seconds: 2));
     await expectLater(outcome, throwsA(isA<TvTimeoutException>()));
   });

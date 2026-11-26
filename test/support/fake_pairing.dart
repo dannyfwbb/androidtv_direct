@@ -12,7 +12,6 @@ import 'package:androidtv_direct/src/protocol/pairing_messages.dart';
 
 import 'fake_tv.dart';
 import 'fixtures.dart';
-import 'hex.dart';
 
 /// The steps of pairing, in order: what the client sends at each.
 enum PairingStep { request, options, configuration, secret }
@@ -109,7 +108,7 @@ final class FakePairing {
     final tv = CertificateInfo.parse(pemOf(testIdentity('tv').certificatePem)).rsaPublicKey;
     final nonce = [_random.nextInt(256), _random.nextInt(256)];
     final hash = pairingHash(client: client, tv: tv, nonce: nonce);
-    code.complete(hex([hash[0], ...nonce]).toUpperCase());
+    code.complete(hexEncode([hash[0], ...nonce]).toUpperCase());
     return hash;
   }
 

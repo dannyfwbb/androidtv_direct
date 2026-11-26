@@ -1,17 +1,15 @@
 // Copyright 2026 The androidtv_direct authors
 // SPDX-License-Identifier: Apache-2.0
 
-import 'dart:io';
-
 import 'package:androidtv_direct/androidtv_direct.dart';
+import 'package:androidtv_direct/src/bytes.dart';
 import 'package:androidtv_direct/src/protocol/remote_messages.dart';
 import 'package:test/test.dart';
 
 import '../support/fake_clock.dart';
+import '../support/fake_remote.dart';
 import '../support/fake_session.dart';
-import '../support/fake_tv.dart';
 import '../support/fixtures.dart';
-import '../support/hex.dart';
 import '../support/wait.dart';
 
 void main() {
@@ -19,33 +17,20 @@ void main() {
   late FakeClock clock;
 
   Future<TvRemote> connect({Set<TvFeature> features = TvFeature.defaults}) async {
-    fake = FakeSession();
-    clock = FakeClock();
-    final tv = await startFakeTv(onRemote: fake.serve);
-    final remote = await TvRemote.connect(
-      InternetAddress.loopbackIPv4,
-      port: tv.remotePort,
-      identity: testClient(),
-      fingerprint: null,
-      features: features,
-      clock: clock,
-    );
-    addTearDown(remote.close);
-    return remote;
+    final connected = await FakeRemote.connect(features: features);
+    (fake, clock) = (connected.session, connected.clock);
+    return connected.remote;
   }
 
   /// The client's messages of type [T], once [count] of them arrived.
-  Future<List<T>> sent<T>(int count) async {
-    await until(() => fake.fromClient.whereType<T>().length >= count);
-    return fake.fromClient.whereType<T>().toList();
-  }
+  Future<List<T>> sent<T>(int count) => fake.received<T>(count: count);
 
   group('keys', () {
     test('press sends the key as the recording has it', () async {
       final remote = await connect();
       remote.press(TvKey.volumeUp);
       final [key] = await sent<KeyMessage>(1);
-      expect(hex(key.encodeEnvelope()), hex(sessionMessage('key', outgoing: true)));
+      expect(hexEncode(key.encodeEnvelope()), hexEncode(sessionMessage('key', outgoing: true)));
     });
 
     test('any code from 1 to 999, with any action', () async {
@@ -95,7 +80,7 @@ void main() {
       final remote = await connect();
       remote.openLink('https://www.youtube.com');
       final [link] = await sent<OpenLinkMessage>(1);
-      expect(hex(link.encodeEnvelope()), hex(sessionMessage('openLink', outgoing: true)));
+      expect(hexEncode(link.encodeEnvelope()), hexEncode(sessionMessage('openLink', outgoing: true)));
     });
 
     test('an empty or overlong link is refused before sending', () async {

@@ -4,6 +4,7 @@
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:androidtv_direct/src/bytes.dart';
 import 'package:androidtv_direct/src/protocol/frame.dart';
 import 'package:test/test.dart';
 
@@ -12,9 +13,9 @@ import '../support/hex.dart';
 
 void main() {
   test('a frame is the body after its length as a varint', () {
-    expect(hex(encodeFrame(unhex('4a020801'))), '044a020801');
-    expect(hex(encodeFrame(Uint8List(200)).sublist(0, 2)), 'c801');
-    expect(hex(encodeFrame(const [])), '00');
+    expect(hexEncode(encodeFrame(unhex('4a020801'))), '044a020801');
+    expect(hexEncode(encodeFrame(Uint8List(200)).sublist(0, 2)), 'c801');
+    expect(hexEncode(encodeFrame(const [])), '00');
   });
 
   test('splitting the recorded stream at every position gives the same frames', () {
@@ -29,7 +30,7 @@ void main() {
     for (var split = 0; split <= stream.length; split++) {
       final reader = FrameReader();
       final frames = [...reader.add(stream.sublist(0, split)), ...reader.add(stream.sublist(split))];
-      expect(frames.map(hex), bodies.map(hex), reason: 'split at $split');
+      expect(frames.map(hexEncode), bodies.map(hexEncode), reason: 'split at $split');
       expect(reader.pendingLength, 0);
     }
   });

@@ -3,6 +3,7 @@
 
 import 'dart:typed_data';
 
+import 'package:androidtv_direct/src/bytes.dart';
 import 'package:androidtv_direct/src/protocol/varint.dart';
 import 'package:test/test.dart';
 
@@ -11,7 +12,7 @@ import '../support/hex.dart';
 String encode(int value) {
   final out = BytesBuilder();
   writeVarint(out, value);
-  return hex(out.takeBytes());
+  return hexEncode(out.takeBytes());
 }
 
 void main() {

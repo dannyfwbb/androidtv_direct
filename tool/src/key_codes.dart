@@ -11,6 +11,9 @@ typedef KeyCodeEntry = ({String name, int code, String comment});
 
 final RegExp _entry = RegExp(r'^\s*AKEYCODE_([A-Z0-9_]+)\s*=\s*(\d+)\s*,');
 final RegExp _commentStart = RegExp(r'^\s*/\*\*');
+final RegExp _commentLead = RegExp(r'^\s*\*?\s*');
+final RegExp _singleDigit = RegExp(r'^\d$');
+final RegExp _leadingDigit = RegExp(r'^\d');
 
 /// The key codes in [header], in file order, each with the first line of the comment above it.
 List<KeyCodeEntry> parseKeyCodes(String header) {
@@ -40,7 +43,7 @@ String summarize(String comment) {
   final text = comment.replaceAll('/**', '').replaceAll('*/', '');
   final first = text
       .split('\n')
-      .map((line) => line.replaceFirst(RegExp(r'^\s*\*?\s*'), '').trim())
+      .map((line) => line.replaceFirst(_commentLead, '').trim())
       .firstWhere((line) => line.isNotEmpty, orElse: () => '');
   final escaped = first.replaceAll('[', r'\[').replaceAll(']', r'\]');
   if (escaped.isEmpty) return 'No description in AOSP.';
@@ -71,8 +74,8 @@ const Set<String> forbiddenNames = {
 String dartName(String name) {
   final fixed = fixedNames[name];
   if (fixed != null) return fixed;
-  if (RegExp(r'^\d$').hasMatch(name)) return 'digit$name';
-  if (RegExp(r'^\d').hasMatch(name)) throw FormatException('No rule for a key name starting with a digit', name);
+  if (_singleDigit.hasMatch(name)) return 'digit$name';
+  if (_leadingDigit.hasMatch(name)) throw FormatException('No rule for a key name starting with a digit', name);
   final words = name.toLowerCase().split('_').where((word) => word.isNotEmpty).toList();
   final camel = words.first + words.skip(1).map((word) => word[0].toUpperCase() + word.substring(1)).join();
   if (forbiddenNames.contains(camel)) throw FormatException('No rule for a reserved key name', name);
@@ -83,16 +86,17 @@ String dartName(String name) {
 ///
 /// Throws [FormatException] if two entries get the same Dart name.
 String generateKeyCodes(List<KeyCodeEntry> entries) {
-  final names = <String>{};
-  for (final entry in entries) {
-    if (!names.add(dartName(entry.name))) throw FormatException('Two keys named ${dartName(entry.name)}', entry.name);
+  final names = [for (final entry in entries) dartName(entry.name)];
+  final seen = <String>{};
+  for (final (i, name) in names.indexed) {
+    if (!seen.add(name)) throw FormatException('Two keys named $name', entries[i].name);
   }
   final out = StringBuffer(_header);
   for (final (i, entry) in entries.indexed) {
     final last = i == entries.length - 1;
     out
       ..writeln('  /// ${entry.comment}')
-      ..writeln('  ${dartName(entry.name)}(${entry.code})${last ? ';' : ','}');
+      ..writeln('  ${names[i]}(${entry.code})${last ? ';' : ','}');
     if (!last) out.writeln();
   }
   out.write(_footer);

@@ -4,13 +4,13 @@
 import 'dart:io';
 
 import 'package:androidtv_direct/androidtv_direct.dart';
+import 'package:androidtv_direct/src/bytes.dart';
 import 'package:androidtv_direct/src/protocol/pairing_messages.dart';
 import 'package:androidtv_direct/src/protocol/remote_messages.dart';
 import 'package:test/test.dart';
 
 import '../support/fake_tv.dart';
 import '../support/fixtures.dart';
-import '../support/hex.dart';
 
 /// The package's own recording of a pairing and a session with the Android TV Remote Service.
 final List<RecordedMessage> session = recordedMessages('session.txt');
@@ -23,11 +23,11 @@ void main() {
       if (m.port == 6467) {
         message = PairingMessage.decode(m.bytes);
         expect((message as PairingMessage).kind, kind);
-        expect(hex(message.encode()), hex(m.bytes), reason: m.name);
+        expect(hexEncode(message.encode()), hexEncode(m.bytes), reason: m.name);
       } else {
         message = m.outgoing ? RemoteEnvelope.fromClient(m.bytes) : RemoteEnvelope.fromTv(m.bytes);
         expect((message as RemoteEnvelope).kind, kind, reason: m.name);
-        expect(hex(message.encodeEnvelope()), hex(m.bytes), reason: m.name);
+        expect(hexEncode(message.encodeEnvelope()), hexEncode(m.bytes), reason: m.name);
       }
     }
   });

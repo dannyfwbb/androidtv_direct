@@ -1,17 +1,14 @@
 // Copyright 2026 The androidtv_direct authors
 // SPDX-License-Identifier: Apache-2.0
 
-import 'dart:io';
-
 import 'package:androidtv_direct/androidtv_direct.dart';
 import 'package:androidtv_direct/src/protocol/remote_messages.dart';
 import 'package:test/test.dart';
 
 import '../support/fake_clock.dart';
 import '../support/fake_field.dart';
+import '../support/fake_remote.dart';
 import '../support/fake_session.dart';
-import '../support/fake_tv.dart';
-import '../support/fixtures.dart';
 import '../support/wait.dart';
 
 void main() {
@@ -20,18 +17,8 @@ void main() {
   late TvRemote remote;
 
   Future<void> connect({Set<TvFeature> features = const {TvFeature.key, TvFeature.ime}}) async {
-    fake = FakeSession();
-    clock = FakeClock();
-    final tv = await startFakeTv(onRemote: fake.serve);
-    remote = await TvRemote.connect(
-      InternetAddress.loopbackIPv4,
-      port: tv.remotePort,
-      identity: testClient(),
-      fingerprint: null,
-      features: features,
-      clock: clock,
-    );
-    addTearDown(remote.close);
+    final connected = await FakeRemote.connect(features: features);
+    (fake, clock, remote) = (connected.session, connected.clock, connected.remote);
   }
 
   /// Focuses [field] on the fake TV and returns the client's view of it.
@@ -63,7 +50,7 @@ void main() {
     final tvField = FakeField(text: 'hello', cursor: 2);
     final field = await focus(tvField);
     final result = field.setText('help');
-    await until(() => fake.fromClient.whereType<KeyMessage>().isNotEmpty);
+    await fake.received<KeyMessage>();
     expect(fake.fromClient.whereType<KeyMessage>().first.code, TvKey.moveEnd.code);
     // No report of the cursor (as on the emulator): the edit goes out after a short wait.
     clock.advance(const Duration(milliseconds: 300));
@@ -137,7 +124,7 @@ void main() {
     final tvField = FakeField(reject: 'x');
     final field = await focus(tvField);
     final waiting = expectLater(field.setText('x'), throwsA(isA<TvCancelledException>()));
-    await until(() => fake.fromClient.whereType<TextEditMessage>().isNotEmpty);
+    await fake.received<TextEditMessage>();
     final focusChanges = <TvTextField?>[];
     remote.textFieldChanges.listen(focusChanges.add);
     await fake.unfocus();
@@ -222,7 +209,7 @@ void main() {
     final tvField = FakeField(reject: 'x');
     final field = await focus(tvField);
     final waiting = field.setText('x');
-    await until(() => fake.fromClient.whereType<TextEditMessage>().isNotEmpty);
+    await fake.received<TextEditMessage>();
     await fake.sendMessage(tvField.focusReport());
     await Future<void>.delayed(const Duration(milliseconds: 50));
     expect(remote.textField, same(field));
@@ -241,7 +228,7 @@ void main() {
     final tvField = FakeField(reject: 'x');
     final field = await focus(tvField);
     final waiting = expectLater(field.setText('x'), throwsA(isA<TvCancelledException>()));
-    await until(() => fake.fromClient.whereType<TextEditMessage>().isNotEmpty);
+    await fake.received<TextEditMessage>();
     await remote.close();
     await waiting;
   });

@@ -4,9 +4,8 @@
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:androidtv_direct/src/bytes.dart';
 import 'package:test/test.dart';
-
-import 'hex.dart';
 
 /// Calls [decode] with [count] inputs, half random bytes and half [seeds] with a few bytes changed, and fails on any
 /// exception other than [FormatException].
@@ -37,7 +36,9 @@ void fuzz<T>(
 
 void _checkStable(Uint8List input, Uint8List once, Uint8List Function(Uint8List bytes) again) {
   final twice = again(once);
-  if (hex(once) != hex(twice)) fail('Unstable encoding of ${hex(input)}: ${hex(once)}, then ${hex(twice)}');
+  if (hexEncode(once) != hexEncode(twice)) {
+    fail('Unstable encoding of ${hexEncode(input)}: ${hexEncode(once)}, then ${hexEncode(twice)}');
+  }
 }
 
 Uint8List _randomBytes(Random random) =>

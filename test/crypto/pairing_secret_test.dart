@@ -3,6 +3,7 @@
 
 import 'dart:typed_data';
 
+import 'package:androidtv_direct/src/bytes.dart';
 import 'package:androidtv_direct/src/crypto/pairing_secret.dart';
 import 'package:androidtv_direct/src/crypto/rsa.dart';
 import 'package:androidtv_direct/src/crypto/x509.dart';
@@ -34,7 +35,7 @@ void main() {
   group('pairingSecret', () {
     test('gives the secret a TV accepted for FDFD37', () {
       final secret = pairingSecret(client: client, tv: tv, code: parsePairingCode('FDFD37')!);
-      expect(hex(secret!), 'fdb6b5c3613bcff2ada1ae1c5e5489727473995741909bae39adf79f917a632b');
+      expect(hexEncode(secret!), 'fdb6b5c3613bcff2ada1ae1c5e5489727473995741909bae39adf79f917a632b');
     });
 
     test('refuses every other first byte', () {
@@ -55,7 +56,7 @@ void main() {
       ]) {
         final expected = await _pythonSecret(keys[0], keys[1], nonce);
         final code = Uint8List.fromList([expected[0], ...nonce]);
-        expect(hex(pairingSecret(client: keys[0], tv: keys[1], code: code)!), hex(expected));
+        expect(hexEncode(pairingSecret(client: keys[0], tv: keys[1], code: code)!), hexEncode(expected));
       }
     }, skip: Tools.skipUnless(Tools.python, 'python3'));
 
@@ -64,7 +65,7 @@ void main() {
       final tv = RsaPrivateKey.generate().publicKey;
       final expected = await _pythonSecret(client, tv, [0x12, 0x34]);
       final code = Uint8List.fromList([expected[0], 0x12, 0x34]);
-      expect(hex(pairingSecret(client: client, tv: tv, code: code)!), hex(expected));
+      expect(hexEncode(pairingSecret(client: client, tv: tv, code: code)!), hexEncode(expected));
     }, skip: Tools.skipUnless(Tools.python, 'python3'));
   });
 }
@@ -83,7 +84,7 @@ print(hashlib.sha256(data).hexdigest())
     '-c',
     script,
     for (final n in [client.modulus, client.exponent, tv.modulus, tv.exponent]) n.toRadixString(16),
-    hex(nonce),
+    hexEncode(nonce),
   ]);
   return unhex(out.trim());
 }

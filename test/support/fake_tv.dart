@@ -7,11 +7,11 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:androidtv_direct/src/bytes.dart';
 import 'package:androidtv_direct/src/protocol/frame.dart';
 import 'package:test/test.dart';
 
 import 'fixtures.dart';
-import 'hex.dart';
 
 /// A fake TV that trusts the test client (`test/fixtures/identities/client.pem`), closed when the test ends.
 Future<FakeTv> startFakeTv({FakeTvHandler? onPairing, FakeTvHandler? onRemote, String identityName = 'tv'}) async {
@@ -316,7 +316,7 @@ final class FakeTvExpect extends FakeTvStep {
 
   /// Expects exactly [body].
   FakeTvExpect.bytes(List<int> body, {Duration timeout = const Duration(seconds: 5)})
-    : this(hex(body), (received) => hex(received) == hex(body), timeout: timeout);
+    : this(hexEncode(body), (received) => hexEncode(received) == hexEncode(body), timeout: timeout);
 
   /// What the message should be, for errors.
   final String description;
@@ -331,7 +331,7 @@ final class FakeTvExpect extends FakeTvStep {
   Future<String?> _play(FakeTvConnection connection) async {
     final body = await connection.receive(timeout: timeout);
     if (body == null) return 'expected $description, got nothing';
-    return matches(body) ? null : 'expected $description, got ${hex(body)}';
+    return matches(body) ? null : 'expected $description, got ${hexEncode(body)}';
   }
 }
 

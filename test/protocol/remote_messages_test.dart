@@ -3,6 +3,7 @@
 
 import 'dart:typed_data';
 
+import 'package:androidtv_direct/src/bytes.dart';
 import 'package:androidtv_direct/src/protocol/proto.dart';
 import 'package:androidtv_direct/src/protocol/remote_messages.dart';
 import 'package:test/test.dart';
@@ -29,7 +30,7 @@ void main() {
     for (final recording in recordings) {
       final message = decode(recording);
       expect(message.kind, recording.name.split('.').first, reason: recording.name);
-      expect(hex(message.encodeEnvelope()), hex(recording.bytes), reason: recording.name);
+      expect(hexEncode(message.encodeEnvelope()), hexEncode(recording.bytes), reason: recording.name);
     }
   });
 
@@ -62,13 +63,17 @@ void main() {
       ),
     };
     for (final MapEntry(key: (name, file), value: message) in sent.entries) {
-      expect(hex(message.encodeEnvelope()), hex(recorded(name, outgoing: true, file: file).bytes), reason: name);
+      expect(
+        hexEncode(message.encodeEnvelope()),
+        hexEncode(recorded(name, outgoing: true, file: file).bytes),
+        reason: name,
+      );
     }
   });
 
   test('a volume level request and an explicit zero encode as the protocol writes them', () {
-    expect(hex(VolumeLevelRequest(level: 10).encodeEnvelope()), '920302380a');
-    expect(hex(PowerReport(state: 0).encodeEnvelope()), 'c202020800');
+    expect(hexEncode(VolumeLevelRequest(level: 10).encodeEnvelope()), '920302380a');
+    expect(hexEncode(PowerReport(state: 0).encodeEnvelope()), 'c202020800');
     expect(RemoteEnvelope.fromTv(unhex('c202020800')), isA<PowerReport>().having((p) => p.on, 'on', isFalse));
   });
 
@@ -141,7 +146,7 @@ void main() {
 
   test('voice audio carries the samples', () {
     final audio = VoiceAudioMessage(voiceId: 1, samples: Uint8List.fromList([1, 2, 3, 4]));
-    expect(hex(audio.encodeEnvelope()), 'fa01080801120401020304');
+    expect(hexEncode(audio.encodeEnvelope()), 'fa01080801120401020304');
     expect((RemoteEnvelope.fromClient(audio.encodeEnvelope()) as VoiceAudioMessage).samples, [1, 2, 3, 4]);
   });
 
@@ -150,7 +155,7 @@ void main() {
       final message = RemoteEnvelope.fromTv(unhex(bytes));
       expect(message, isA<UnknownEnvelope>());
       expect(message.kind, 'unknown(247)');
-      expect(hex(message.encodeEnvelope()), bytes);
+      expect(hexEncode(message.encodeEnvelope()), bytes);
     }
   });
 

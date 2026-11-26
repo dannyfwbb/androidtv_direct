@@ -1,6 +1,7 @@
 // Copyright 2026 The androidtv_direct authors
 // SPDX-License-Identifier: Apache-2.0
 
+import 'package:androidtv_direct/src/bytes.dart';
 import 'package:androidtv_direct/src/protocol/pairing_messages.dart';
 import 'package:test/test.dart';
 
@@ -20,7 +21,7 @@ void main() {
       expect(message.kind, recording.name);
       expect(message.version, pairingProtocolVersion);
       expect(message.isOk, isTrue);
-      expect(hex(message.encode()), hex(recording.bytes), reason: recording.name);
+      expect(hexEncode(message.encode()), hexEncode(recording.bytes), reason: recording.name);
     }
   });
 
@@ -33,14 +34,18 @@ void main() {
       'pairingSecret': PairingSecret(secret: secret),
     };
     for (final MapEntry(key: name, value: body) in sent.entries) {
-      expect(hex(PairingMessage(body: body).encode()), hex(recorded(name, outgoing: true).bytes), reason: name);
+      expect(
+        hexEncode(PairingMessage(body: body).encode()),
+        hexEncode(recorded(name, outgoing: true).bytes),
+        reason: name,
+      );
     }
   });
 
   test('a pairing request carries the service and the client name', () {
     final request = PairingRequest(serviceName: 'atvremote', clientName: 'androidtv_direct');
     expect(
-      hex(PairingMessage(body: request).encode()),
+      hexEncode(PairingMessage(body: request).encode()),
       '080210c801521d0a0961747672656d6f74651210616e64726f696474765f646972656374',
     );
   });
@@ -69,7 +74,7 @@ void main() {
   });
 
   test('unknown fields survive; two inner messages are a format error', () {
-    expect(hex(PairingMessage.decode(unhex('080210c8016001fa0100')).encode()), '080210c8016001fa0100');
+    expect(hexEncode(PairingMessage.decode(unhex('080210c8016001fa0100')).encode()), '080210c8016001fa0100');
     expect(() => PairingMessage.decode(unhex('080210c8015a00fa0100')), throwsFormatException);
   });
 
