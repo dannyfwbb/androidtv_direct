@@ -34,8 +34,9 @@ final class TvSocket {
   ///
   /// Throws [TvNoServiceException] when nothing listens on the port, [TvUnreachableException] when the address does
   /// not answer in time or has no route, [TvTimeoutException] when the TV accepts the connection but does not finish
-  /// the handshake (a TV busy with another pairing does that), [TvProtocolException] when the handshake fails, and
-  /// [TvCancelledException] when [cancelOn] completes first.
+  /// the handshake (a TV busy with another pairing does that), [TvClosedException] when it closes the connection
+  /// during the handshake, [TvProtocolException] when the handshake fails otherwise, and [TvCancelledException] when
+  /// [cancelOn] completes first.
   ///
   /// With [pin], the TV's key must have that fingerprint (see `spkiFingerprint`), or the connection fails with
   /// [TvWrongTvException]. The check runs inside the TLS handshake, which is aborted on a mismatch before the client's

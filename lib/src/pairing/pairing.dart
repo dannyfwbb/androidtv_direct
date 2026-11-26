@@ -35,7 +35,8 @@ final class TvPairing {
   /// [clientName] appears in the TV's dialog ("Enter the following code on your …"). [timeout] limits the connection,
   /// the TLS handshake and each step. Throws [TvUnreachableException], [TvNoServiceException],
   /// [TvPairingRefusedException] (the TV said no or closed the connection), [TvTimeoutException] (also when the TV is
-  /// busy with another pairing), [TvProtocolException] or, when [cancelOn] completes before this returns,
+  /// busy with another pairing), [TvClosedException] (the port closed the connection during the TLS handshake),
+  /// [TvProtocolException] or, when [cancelOn] completes before this returns,
   /// [TvCancelledException]. [cancelOn] has no effect afterwards; use [cancel].
   static Future<TvPairing> start(
     Object host, {

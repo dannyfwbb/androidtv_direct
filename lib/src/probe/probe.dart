@@ -21,7 +21,8 @@ abstract final class TvProbe {
   /// The TLS handshake needs a client certificate; without [identity], one made once per isolate (valid from [now]) is
   /// used. [timeout] limits the connection and the handshake. Throws [TvUnreachableException], [TvNoServiceException],
   /// [TvTimeoutException] (the TV accepted the connection but did not finish TLS: it is busy with a pairing),
-  /// [TvProtocolException] (no usable certificate) or, when [cancelOn] completes first, [TvCancelledException].
+  /// [TvClosedException] (the port closed the connection during the handshake), [TvProtocolException] (no usable
+  /// certificate) or, when [cancelOn] completes first, [TvCancelledException].
   static Future<TvIdentity> identify(
     Object host, {
     int port = TvPairing.defaultPort,
