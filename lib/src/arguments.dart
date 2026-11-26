@@ -21,7 +21,7 @@ Object checkHost(Object host) => switch (host) {
 
 /// [text], which must hold more than spaces.
 String checkNotBlank(String text, String name) {
-  if (text.trim().isEmpty) throw ArgumentError.value(text, name, 'is empty');
+  if (text.trim().isEmpty) throw ArgumentError.value(text, name, 'is blank');
   return text;
 }
 

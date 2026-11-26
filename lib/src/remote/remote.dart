@@ -56,8 +56,8 @@ final class TvRemote {
   /// Throws [TvUnreachableException], [TvNoServiceException], [TvWrongTvException], [TvNotPairedException] (the TV does
   /// not know [identity]), [TvTimeoutException] (no TLS within [connectTimeout], or no start within [startTimeout]),
   /// [TvClosedException], [TvProtocolException] or, when [cancelOn] completes before this returns,
-  /// [TvCancelledException]. Throws [ArgumentError] for a host that is neither a name, an address as text nor an
-  /// `InternetAddress`, a port outside 1 to 65535, a [fingerprint] that is not 64 hexadecimal characters (either case
+  /// [TvCancelledException]. Throws [ArgumentError] for a host that is neither a name nor an address as text (without
+  /// spaces around it) nor an `InternetAddress`, a port outside 1 to 65535, a [fingerprint] that is not 64 hexadecimal characters (either case
   /// is taken), and a timeout that is not longer than zero.
   static Future<TvRemote> connect(
     Object host, {
