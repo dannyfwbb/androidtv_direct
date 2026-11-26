@@ -161,7 +161,8 @@ final class TvRemote {
     return _volume.set(level, stepTimeout: stepTimeout, timeout: timeout);
   }
 
-  /// Opens a voice session: presses Search and waits up to [timeout] for the TV's voice search to open it. Feed it the
+  /// Opens a voice session: presses Search and waits for the TV's voice search to open it: at least [timeout], longer
+  /// as long as the TV's answers have been taking. Feed it the
   /// app's microphone audio (16-bit PCM, mono, 8 kHz) and [TvVoiceSession.close] it when the user stops talking.
   ///
   /// [pace] sends the audio in real time, as a microphone delivers it; without it, chunks go out as fast as they are

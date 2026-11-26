@@ -12,7 +12,8 @@ import 'package:androidtv_direct/src/remote/keys.dart';
 import 'package:androidtv_direct/src/remote/session.dart';
 import 'package:androidtv_direct/src/voice/chunk_queue.dart';
 
-/// Presses Search and waits up to [timeout] for the TV to open a voice session, then acknowledges it.
+/// Presses Search and waits for the TV to open a voice session (at least [timeout], longer as long as the TV's answers
+/// have been taking), then acknowledges it.
 ///
 /// With [afterUnconfirmed] (the last session's close was never confirmed), the first end the TV sends within
 /// [TvVoiceSession.staleEndWindow] of the open is taken as that confirmation, arriving late, and not as the end of the
@@ -46,18 +47,24 @@ final class _VoiceStart extends SessionPart {
   /// Whether the wait is over: an open now comes too late and is closed again.
   bool _late = false;
 
+  /// When Search went out: the open answers it.
+  late final Duration _pressedAt;
+
+  /// Waits at least [timeout] for the open; longer as long as the TV's answers have been taking.
   Future<TvVoiceSession> run(Duration timeout) async {
     _session.attach(this);
     sendKey(_session, TvKey.search.code, TvKeyAction.press);
+    _pressedAt = _session.clock.elapsed;
+    final wait = _session.roundTrip.waitFor(timeout);
     try {
       return await _session.clock.deadline(
         _opened.future,
-        timeout,
-        () => TvTimeoutException('The TV did not open a voice session within $timeout'),
+        wait,
+        () => TvTimeoutException('The TV did not open a voice session within $wait'),
       );
     } on TvTimeoutException {
       _late = true;
-      _session.clock.timer(timeout, () => _session.detach(this));
+      _session.clock.timer(wait, () => _session.detach(this));
       rethrow;
     }
   }
@@ -66,6 +73,8 @@ final class _VoiceStart extends SessionPart {
   void onMessage(RemoteEnvelope message) {
     if (message is! VoiceOpenMessage) return;
     _session.detach(this);
+    // Late or not, the open answers Search, which went out once.
+    _session.roundTrip.add(_session.clock.elapsed - _pressedAt);
     final voiceId = message.voiceId ?? 0;
     if (_late) return _session.send(VoiceCloseMessage(voiceId: voiceId));
     _session.send(VoiceOpenMessage(voiceId: voiceId));
@@ -121,7 +130,8 @@ final class TvVoiceSession extends SessionPart {
   /// How much audio [add] buffers before it waits for chunks to go out: ten seconds.
   static const int maxBufferedBytes = 10 * bytesPerSecond;
 
-  /// How long [close] waits for the TV to confirm the end before [done] completes anyway.
+  /// How long [close] waits at least for the TV to confirm the end before [done] completes anyway; longer as long as
+  /// the TV's answers have been taking.
   static const Duration endConfirmation = Duration(seconds: 1);
 
   /// How long after the open an end is taken as a late confirmation of the session before, when that one's close was
@@ -243,9 +253,13 @@ final class TvVoiceSession extends SessionPart {
     _state = _State.closed;
     _paceTimer?.cancel();
     _session.send(VoiceCloseMessage(voiceId: voiceId));
-    _confirmTimer = _session.clock.timer(endConfirmation, _finish);
+    _closedAt = _session.clock.elapsed;
+    _confirmTimer = _session.clock.timer(_session.roundTrip.waitFor(endConfirmation), _finish);
     _wake();
   }
+
+  /// When the close went out: the TV's end, if it comes, answers it.
+  Duration? _closedAt;
 
   @override
   void onMessage(RemoteEnvelope message) {
@@ -263,6 +277,7 @@ final class TvVoiceSession extends SessionPart {
   }
 
   void _onEndedByTv() {
+    if (_closedAt case final closedAt?) _session.roundTrip.add(_session.clock.elapsed - closedAt);
     _endConfirmed = true;
     if (_sending) _state = _State.endedByTv;
     _audio.clear();

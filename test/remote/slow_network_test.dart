@@ -11,8 +11,8 @@ import '../support/fake_session.dart';
 import '../support/fake_tv.dart';
 import '../support/fixtures.dart';
 
-/// A network slower than the give-up times: reports arrive later than `textGiveUp`, but they arrive, and the session
-/// must wait for them instead of taking the TV's old text, on the real clock.
+/// A network slower than the waits: answers arrive later than `textGiveUp`, `stepTimeout` or a voice timeout, but they
+/// arrive, and the session must wait for them instead of giving up, on the real clock.
 void main() {
   test('setText reaches every text when each report takes longer than textGiveUp', () async {
     final fake = FakeSession()..latency = const Duration(milliseconds: 250);
@@ -75,5 +75,22 @@ void main() {
     addTearDown(remote.close);
     await remote.setVolume(5, stepTimeout: const Duration(milliseconds: 100));
     expect(remote.state.volume!.level, 5);
+  }, timeout: const Timeout(Duration(minutes: 1)));
+
+  test('a voice session opens and its end is confirmed when the answers take longer than the timeouts', () async {
+    final fake = FakeSession()..latency = const Duration(milliseconds: 250);
+    final tv = await startFakeTv(onRemote: fake.serve);
+    final remote = await TvRemote.connect(
+      InternetAddress.loopbackIPv4,
+      port: tv.remotePort,
+      identity: testClient(),
+      fingerprint: null,
+      features: {...TvFeature.defaults, TvFeature.voice},
+    );
+    addTearDown(remote.close);
+    final voice = await remote.startVoice(timeout: const Duration(milliseconds: 100), pace: false);
+    await voice.add(List.filled(TvVoiceSession.chunkBytes, 0));
+    await voice.close();
+    expect(voice.endConfirmed, isTrue);
   }, timeout: const Timeout(Duration(minutes: 1)));
 }
