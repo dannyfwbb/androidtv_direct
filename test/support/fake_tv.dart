@@ -77,6 +77,9 @@ final class FakeTv {
   /// The remote port.
   int get remotePort => _remote.port;
 
+  /// The connections open on either port: past the TLS handshake and not closed by either side.
+  int get openConnections => _pairing._open.length + _remote._open.length;
+
   /// Handshakes that failed on either port (an untrusted client certificate, or a client that went away).
   int get rejected => _pairing.rejected + _remote.rejected;
 

@@ -1,6 +1,7 @@
 // Copyright 2026 The androidtv_direct authors
 // SPDX-License-Identifier: Apache-2.0
 
+import 'package:androidtv_direct/src/errors.dart';
 import 'package:androidtv_direct/src/protocol/remote_messages.dart';
 import 'package:androidtv_direct/src/remote/features.dart';
 import 'package:androidtv_direct/src/remote/session.dart';
@@ -60,10 +61,13 @@ final class TvKeyHold {
   }
 }
 
-/// The keys a session holds down, so that closing it can release them.
-final class KeyHolds {
+/// The keys a session holds down, so that closing it can release them. A part of the session ([SessionPart]): when
+/// the session ends, the TV stops repeating them and they are forgotten.
+final class KeyHolds extends SessionPart {
   /// Holds for [_session].
-  KeyHolds(this._session);
+  KeyHolds(this._session) {
+    _session.attach(this);
+  }
 
   final RemoteSession _session;
   final Set<TvKeyHold> _held = {};
@@ -76,19 +80,18 @@ final class KeyHolds {
     return hold;
   }
 
-  /// Releases every held key; a failure to send does not stop the others.
+  /// Releases every held key.
   void releaseAll() {
     for (final hold in [..._held]) {
-      try {
-        hold.release();
-      } on Exception {
-        // The session is ending anyway.
-      }
+      hold.release();
     }
   }
 
+  @override
+  void onEnd(TvRemoteException reason) => _held.clear();
+
+  /// Sends [hold]'s key up, if the session still holds it.
   void _release(TvKeyHold hold) {
-    _held.remove(hold);
-    if (!_session.isClosed) sendKey(_session, hold.code, TvKeyAction.up);
+    if (_held.remove(hold)) sendKey(_session, hold.code, TvKeyAction.up);
   }
 }

@@ -15,6 +15,20 @@ import 'package:androidtv_direct/src/remote/watchdog.dart';
 import 'package:androidtv_direct/src/text/field_tracker.dart';
 import 'package:androidtv_direct/src/transport/tv_socket.dart';
 
+/// Something that follows a session from inside: every message, field change and the end, as the session handles
+/// them and before any other code runs. Its state therefore never lags behind the session's: no timer, report or call
+/// can come between the session ending and the part knowing it.
+abstract class SessionPart {
+  /// [message] arrived and the session applied it ([RemoteSession.state] and [RemoteSession.field] are current).
+  void onMessage(RemoteEnvelope message) {}
+
+  /// The message just passed to [onMessage] changed the focused field as [event] says.
+  void onFieldEvent(FieldEvent event) {}
+
+  /// The session ended: [reason] is what ended it, [RemoteSession.closedError] after `close`. The last call.
+  void onEnd(TvRemoteException reason) {}
+}
+
 /// A message from the TV with the bytes it arrived as.
 typedef ReceivedMessage = ({RemoteEnvelope message, Uint8List bytes});
 
@@ -46,7 +60,7 @@ final class RemoteSession {
   final Completer<TvRemoteException?> _done = Completer();
   final StreamController<TvState> _changes = StreamController.broadcast();
   final StreamController<ReceivedMessage> _messages = StreamController.broadcast();
-  final StreamController<FieldEvent> _fieldEvents = StreamController.broadcast(sync: true);
+  final List<SessionPart> _parts = [];
   Watchdog? _watchdog;
   bool _heardFromTv = false;
 
@@ -75,15 +89,17 @@ final class RemoteSession {
   /// Every state change.
   Stream<TvState> get changes => _changes.stream;
 
-  /// What each report changed about the focused field, as it is applied.
-  Stream<FieldEvent> get fieldEvents => _fieldEvents.stream;
+  /// Makes [part] follow the session until [detach], or until its end, which it is told of.
+  void attach(SessionPart part) {
+    if (isClosed) return part.onEnd(_endReason ?? closedError);
+    _parts.add(part);
+  }
+
+  /// Stops telling [part] about the session.
+  void detach(SessionPart part) => _parts.remove(part);
 
   /// Every message from the TV, with its bytes.
   Stream<ReceivedMessage> get messages => _messages.stream;
-
-  /// Every message of type [T] from the TV.
-  Stream<T> messagesOf<T extends RemoteEnvelope>() =>
-      messages.map((received) => received.message).where((message) => message is T).cast<T>();
 
   /// Completes once: `null` after [close], otherwise why the session ended.
   Future<TvRemoteException?> get done => _done.future;
@@ -201,11 +217,16 @@ final class RemoteSession {
 
   void _report(RemoteEnvelope message) {
     final event = field.apply(message);
-    if (event != null) _fieldEvents.add(event);
     final next = _state.apply(message);
     if (!identical(next, _state)) {
       _state = next;
       _changes.add(next);
+    }
+    // Parts may detach, or end the session, while they are told.
+    for (final part in [..._parts]) {
+      if (isClosed) return;
+      part.onMessage(message);
+      if (event != null) part.onFieldEvent(event);
     }
     if (message is PowerReport && !_ready.isCompleted) _ready.complete();
   }
@@ -248,9 +269,13 @@ final class RemoteSession {
     _done.complete(reason);
     if (!_ready.isCompleted) _ready.completeError(reason ?? closedError);
     _ready.future.ignore();
+    final parts = [..._parts];
+    _parts.clear();
+    for (final part in parts) {
+      part.onEnd(reason ?? closedError);
+    }
     unawaited(_changes.close());
     unawaited(_messages.close());
-    unawaited(_fieldEvents.close());
     unawaited(_socket.close());
   }
 }

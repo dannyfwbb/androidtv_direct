@@ -177,7 +177,7 @@ final class TvRemote {
 
   /// The text field that has the focus on the TV, or `null`. Always `null` without [TvFeature.ime] (TVs report text
   /// fields only to sessions with it) and once the session has ended; typing also needs [TvFeature.key].
-  TvTextField? get textField => features.contains(TvFeature.ime) && !isClosed ? _text.current : null;
+  TvTextField? get textField => features.contains(TvFeature.ime) ? _text.current : null;
 
   /// The focused text field each time the focus changes: a new [TvTextField], or `null` when no field has the focus.
   /// Delivered asynchronously: a field may have stopped again by the time it arrives (check [TvTextField.isFocused]).
@@ -210,11 +210,8 @@ final class TvRemote {
 
   /// Ends the session, releasing held keys first. Does nothing once it has ended.
   Future<void> close() async {
-    try {
-      _holds.releaseAll();
-    } finally {
-      await _session.close();
-    }
+    _holds.releaseAll();
+    await _session.close();
   }
 }
 

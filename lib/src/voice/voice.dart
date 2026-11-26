@@ -3,6 +3,7 @@
 
 import 'dart:async';
 
+import 'package:androidtv_direct/src/clock.dart';
 import 'package:androidtv_direct/src/errors.dart';
 import 'package:androidtv_direct/src/protocol/key_codes.dart';
 import 'package:androidtv_direct/src/protocol/remote_messages.dart';
@@ -25,45 +26,58 @@ Future<TvVoiceSession> startVoiceSession(
   required Duration timeout,
   required bool pace,
   bool afterUnconfirmed = false,
-}) async {
+}) {
   session
     ..require(TvFeature.voice)
     ..require(TvFeature.key);
-  // Ends that arrive with the open (one read can carry both) come before this function resumes: they are kept for the
-  // voice session, which listens only from its start.
-  var opened = false;
-  final endedEarly = <VoiceEndedMessage>[];
-  final early = session.messagesOf<VoiceEndedMessage>().listen((ended) => opened ? endedEarly.add(ended) : null);
-  sendKey(session, TvKey.search.code, TvKeyAction.press);
-  try {
-    final open = await _nextVoiceOpen(session, timeout, onOpen: () => opened = true);
-    final voiceId = open.voiceId ?? 0;
-    session.send(VoiceOpenMessage(voiceId: voiceId));
-    final staleEndsUntil = afterUnconfirmed ? session.clock.elapsed + TvVoiceSession.staleEndWindow : Duration.zero;
-    return TvVoiceSession._(session, voiceId, pace: pace, staleEndsUntil: staleEndsUntil, endedEarly: endedEarly);
-  } on TvTimeoutException {
-    _closeLateOpen(session, within: timeout);
-    rethrow;
-  } finally {
-    unawaited(early.cancel());
-  }
+  return _VoiceStart(session, pace: pace, afterUnconfirmed: afterUnconfirmed).run(timeout);
 }
 
-/// The TV's next voice open, within [timeout]; [onOpen] runs as soon as it arrives.
-Future<VoiceOpenMessage> _nextVoiceOpen(RemoteSession session, Duration timeout, {void Function()? onOpen}) =>
-    session.next(
-      session.messagesOf<VoiceOpenMessage>(),
-      (_) {
-        onOpen?.call();
-        return true;
-      },
-      timeout: timeout,
-      onTimeout: () => TvTimeoutException('The TV did not open a voice session within $timeout'),
-    );
+/// Search pressed, the TV's open awaited. A part of the session, so the voice session it makes at the open follows
+/// the messages right after it (an end can come in the same read).
+final class _VoiceStart extends SessionPart {
+  _VoiceStart(this._session, {required this.pace, required this.afterUnconfirmed});
 
-/// Closes a voice session the TV opens [within] a timeout after the client stopped waiting.
-void _closeLateOpen(RemoteSession session, {required Duration within}) =>
-    _nextVoiceOpen(session, within).then((open) => session.send(VoiceCloseMessage(voiceId: open.voiceId))).ignore();
+  final RemoteSession _session;
+  final bool pace;
+  final bool afterUnconfirmed;
+  final Completer<TvVoiceSession> _opened = Completer();
+
+  /// Whether the wait is over: an open now comes too late and is closed again.
+  bool _late = false;
+
+  Future<TvVoiceSession> run(Duration timeout) async {
+    _session.attach(this);
+    sendKey(_session, TvKey.search.code, TvKeyAction.press);
+    try {
+      return await _session.clock.deadline(
+        _opened.future,
+        timeout,
+        () => TvTimeoutException('The TV did not open a voice session within $timeout'),
+      );
+    } on TvTimeoutException {
+      _late = true;
+      _session.clock.timer(timeout, () => _session.detach(this));
+      rethrow;
+    }
+  }
+
+  @override
+  void onMessage(RemoteEnvelope message) {
+    if (message is! VoiceOpenMessage) return;
+    _session.detach(this);
+    final voiceId = message.voiceId ?? 0;
+    if (_late) return _session.send(VoiceCloseMessage(voiceId: voiceId));
+    _session.send(VoiceOpenMessage(voiceId: voiceId));
+    final staleEndsUntil = afterUnconfirmed ? _session.clock.elapsed + TvVoiceSession.staleEndWindow : Duration.zero;
+    _opened.complete(TvVoiceSession._(_session, voiceId, pace: pace, staleEndsUntil: staleEndsUntil));
+  }
+
+  @override
+  void onEnd(TvRemoteException reason) {
+    if (!_late) _opened.completeError(reason);
+  }
+}
 
 enum _State {
   /// Audio is taken.
@@ -88,18 +102,14 @@ enum _State {
 /// it; with pacing (the default) one chunk per 1.28 s, as a microphone delivers audio. [close] sends what is left (the
 /// last chunk padded with silence) and ends the session; [cancel] ends it at once. The TV may end it first (its voice
 /// search finished or gave up): audio added after that is dropped, and [close] does nothing.
-final class TvVoiceSession {
-  TvVoiceSession._(
-    this._session,
-    this.voiceId, {
-    required bool pace,
-    required Duration staleEndsUntil,
-    required List<VoiceEndedMessage> endedEarly,
-  }) : _pace = pace {
-    _session.done.then((reason) => _fail(reason ?? RemoteSession.closedError)).ignore();
-    bool endsThis(VoiceEndedMessage ended) => ended.voiceId == voiceId && !_isStaleEnd(staleEndsUntil);
-    _endedByTv = _session.messagesOf<VoiceEndedMessage>().where(endsThis).listen((_) => _onEndedByTv());
-    if (endedEarly.any(endsThis)) _onEndedByTv();
+///
+/// It is a part of the remote session ([SessionPart]): the TV's end and the end of the remote session reach it as they
+/// happen, so nothing is sent for it after either.
+final class TvVoiceSession extends SessionPart {
+  TvVoiceSession._(this._session, this.voiceId, {required bool pace, required Duration staleEndsUntil})
+    : _pace = pace,
+      _staleEndsUntil = staleEndsUntil {
+    _session.attach(this);
   }
 
   /// The bytes of one chunk.
@@ -124,7 +134,7 @@ final class TvVoiceSession {
   final bool _pace;
   final ChunkQueue _audio = ChunkQueue(chunkBytes);
   final Completer<void> _done = Completer();
-  late final StreamSubscription<VoiceEndedMessage> _endedByTv;
+  final Duration _staleEndsUntil;
   bool _staleEndSeen = false;
   _State _state = _State.open;
   Object? _error;
@@ -207,10 +217,9 @@ final class TvVoiceSession {
     }
   }
 
-  /// Sends whole chunks: all of them without pacing, otherwise one now and the next when its time comes. Nothing once
-  /// the session ended: the end reaches this voice session through [RemoteSession.done].
+  /// Sends whole chunks: all of them without pacing, otherwise one now and the next when its time comes.
   void _pump() {
-    while (_sending && !_session.isClosed && _paceTimer == null && _audio.hasChunk) {
+    while (_sending && _paceTimer == null && _audio.hasChunk) {
       _session.send(VoiceAudioMessage(voiceId: voiceId, samples: _audio.take()));
       if (_pace) _paceTimer = _session.clock.timer(_chunkDuration, _onPaced);
     }
@@ -233,14 +242,22 @@ final class TvVoiceSession {
   void _sendClose() {
     _state = _State.closed;
     _paceTimer?.cancel();
-    if (!_session.isClosed) _session.send(VoiceCloseMessage(voiceId: voiceId));
+    _session.send(VoiceCloseMessage(voiceId: voiceId));
     _confirmTimer = _session.clock.timer(endConfirmation, _finish);
     _wake();
   }
 
+  @override
+  void onMessage(RemoteEnvelope message) {
+    if (message case VoiceEndedMessage(:final voiceId) when voiceId == this.voiceId && !_isStaleEnd()) _onEndedByTv();
+  }
+
+  @override
+  void onEnd(TvRemoteException reason) => _fail(reason);
+
   /// Whether an end that just came is the late confirmation of the session before: the first one within the window.
-  bool _isStaleEnd(Duration until) {
-    if (_staleEndSeen || _session.clock.elapsed >= until) return false;
+  bool _isStaleEnd() {
+    if (_staleEndSeen || _session.clock.elapsed >= _staleEndsUntil) return false;
     _staleEndSeen = true;
     return true;
   }
@@ -263,7 +280,7 @@ final class TvVoiceSession {
     _paceTimer?.cancel();
     _confirmTimer?.cancel();
     _wake();
-    unawaited(_endedByTv.cancel());
+    _session.detach(this);
     if (_done.isCompleted) return;
     if (_state == _State.failed) {
       _done.completeError(_error!);

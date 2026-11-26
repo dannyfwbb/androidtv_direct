@@ -143,8 +143,8 @@ final class TvTextField {
     final first = _afterMove == null;
     _afterMove = value;
     if (!first) return;
-    final sent = _sent(() => sendKey(_session, TvKey.moveEnd.code, TvKeyAction.press));
-    if (sent) _restartTimer(_moveEndWait, _afterCursorMoved);
+    sendKey(_session, TvKey.moveEnd.code, TvKeyAction.press);
+    _restartTimer(_moveEndWait, _afterCursorMoved);
   }
 
   void _afterCursorMoved() {
@@ -177,7 +177,7 @@ final class TvTextField {
     if (result.adopt != null) _changes.add(result.adopt!);
     final step = result.send;
     if (step != null) {
-      if (!_sent(() => _sendStep(step))) return;
+      _sendStep(step);
       _restartTimer(giveUpAfter, () => _apply(_sync.stalled()));
     }
     if (_sync.waiting) return;
@@ -186,25 +186,6 @@ final class TvTextField {
       waiter.complete(_sync.tv);
     }
     _waiting.clear();
-  }
-
-  /// Runs [send]; returns whether it went out. Sends also happen in reports and timers, where nothing could catch a
-  /// failure (the session ended, a feature is missing): it fails the waiting [setText] calls instead, and the sync
-  /// starts again from the TV's text, so the next call is not left waiting for a step that never went out.
-  bool _sent(void Function() send) {
-    try {
-      send();
-      return true;
-    } on TvRemoteException catch (e) {
-      _timer?.cancel();
-      _afterMove = null;
-      _sync.reset(_sync.tv, cursor: _selection.end);
-      for (final waiter in _waiting) {
-        waiter.completeError(e);
-      }
-      _waiting.clear();
-      return false;
-    }
   }
 
   void _sendStep(TextStep step) {
@@ -246,18 +227,19 @@ final class TvTextField {
 }
 
 /// Follows the focus: makes a [TvTextField] for every field that gets it and stops the previous one.
-final class TextInput {
+///
+/// It is a part of the session ([SessionPart]), so a field stops in the same moment the session ends: none of its
+/// timers or reports can act on an ended session, and every send it makes is to a live one.
+final class TextInput extends SessionPart {
   /// Follows [_session]'s field reports; every field gives up after [_giveUpAfter].
   TextInput(this._session, this._giveUpAfter) {
     if (_session.field.focused) _current = TvTextField._(_session, _giveUpAfter, this);
-    _events = _session.fieldEvents.listen(_onEvent);
-    unawaited(_session.done.then(_end));
+    _session.attach(this);
   }
 
   final RemoteSession _session;
   final Duration _giveUpAfter;
   final StreamController<TvTextField?> _focus = StreamController.broadcast();
-  late final StreamSubscription<FieldEvent> _events;
   TvTextField? _current;
 
   /// Whether the TV takes text edits with a range; `false` once a field found it does not.
@@ -269,14 +251,15 @@ final class TextInput {
   /// The focused field each time the focus changes; `null` when no field has it.
   Stream<TvTextField?> get focus => _focus.stream;
 
-  void _end(TvRemoteException? reason) {
-    _current?._stop(reason ?? const TvCancelledException('The session was closed'));
+  @override
+  void onEnd(TvRemoteException reason) {
+    _current?._stop(reason);
     _current = null;
     unawaited(_focus.close());
-    unawaited(_events.cancel());
   }
 
-  void _onEvent(FieldEvent event) {
+  @override
+  void onFieldEvent(FieldEvent event) {
     switch (event) {
       case FieldEvent.focused:
         _current?._stop();

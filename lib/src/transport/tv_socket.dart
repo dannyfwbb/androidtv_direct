@@ -190,7 +190,11 @@ final class TvSocket {
   void _note(String message) => _tracer?.onEvent(TvNoteTrace(at: _clock.elapsed, message: 'port $port: $message'));
 }
 
-/// One connection attempt: its two stages, their deadlines and its cancellation.
+/// One connection attempt: TCP, then TLS over it.
+///
+/// Every stage races its deadline and [cancel] ([_stage]); what a stage given up on still produces is closed when it
+/// comes. Everything the attempt acquired is closed when it fails, and the connection becomes the caller's only if no
+/// cancellation came before [open] returns.
 final class _Attempt {
   _Attempt(this.target, this.clock, this.timeout, this.pin);
 
@@ -198,113 +202,106 @@ final class _Attempt {
   final TvClock clock;
   final Duration timeout;
   final String? pin;
-  String? _presented;
-  bool _cancelled = false;
-  bool _opened = false;
-  ConnectionTask<RawSocket>? _task;
-  RawSocket? _socket;
-
-  /// Completes on [cancel]: a TLS handshake whose plain socket is closed never completes, so it races this.
   final Completer<void> _cancel = Completer();
+  String? _presented;
 
-  /// Stops the attempt; does nothing once [open] has returned (the caller owns the socket then).
+  /// Stops the attempt; does nothing once [open] has returned.
   void cancel() {
-    if (_opened || _cancelled) return;
-    _cancelled = true;
-    _task?.cancel();
-    _socket?.close().ignore();
-    _cancel.complete();
+    if (!_cancel.isCompleted) _cancel.complete();
   }
-
-  TvCancelledException _cancelledError([Object? cause]) =>
-      TvCancelledException('The connection to $target was cancelled', cause: cause);
 
   /// TCP, then TLS over it.
   Future<SecureLink> open(Object host, int port, SecurityContext context) async {
-    final link = await _secure(await _openTcp(host, port), context);
-    // A cancellation may have come between the handshake and here.
-    if (_cancelled) {
-      link.destroy();
-      throw _cancelledError();
+    final acquired = <void Function()>[];
+    try {
+      final plain = await _connect(host, port, acquired);
+      final link = SecureLink(await _secure(plain, context), plain);
+      _checkPin(link);
+      if (_cancel.isCompleted) throw _cancelled;
+      return link;
+    } on Object {
+      for (final release in acquired.reversed) {
+        release();
+      }
+      rethrow;
     }
-    _opened = true;
-    return link;
   }
 
-  Future<RawSocket> _openTcp(Object host, int port) async {
+  /// The TCP connection; adds what must be released to [acquired]. The host lookup happens before
+  /// `startConnect` returns its task, so it is a stage of its own.
+  Future<RawSocket> _connect(Object host, int port, List<void Function()> acquired) async {
     try {
-      // The host lookup happens before startConnect returns its task, so it is under the deadline too.
-      final starting = RawSocket.startConnect(host, port);
-      final task = await clock.deadline(starting, timeout, () {
-        // A lookup that finishes later must not leave a connection behind.
-        starting.then(_discard, onError: (Object _) {}).ignore();
-        return TvUnreachableException('$target could not be resolved within $timeout');
-      });
-      _task = task;
-      if (_cancelled) task.cancel();
-      final socket = await clock.deadline(task.socket, timeout, () {
-        task.cancel();
-        return TvUnreachableException('$target did not answer within $timeout');
-      });
-      _socket = socket;
-      if (_cancelled) {
-        socket.close().ignore();
-        throw _cancelledError();
-      }
-      socket.setOption(SocketOption.tcpNoDelay, true);
-      return socket;
+      final task = await _stage(
+        RawSocket.startConnect(host, port),
+        discard: _discardTask,
+        onTimeout: () => TvUnreachableException('$target could not be resolved within $timeout'),
+      );
+      acquired.add(task.cancel);
+      final plain = await _stage(
+        task.socket,
+        discard: (socket) => socket.close().ignore(),
+        onTimeout: () => TvUnreachableException('$target did not answer within $timeout'),
+      );
+      acquired.add(() => plain.close().ignore());
+      plain.setOption(SocketOption.tcpNoDelay, true);
+      return plain;
     } on SocketException catch (e) {
-      if (_cancelled) throw _cancelledError(e);
       throw _connectError(e);
     }
   }
 
-  /// Stops [task] and closes the socket it may still open.
-  static void _discard(ConnectionTask<RawSocket> task) {
-    task.cancel();
-    task.socket.then((socket) => socket.close(), onError: (Object _) {}).ignore();
-  }
-
-  Future<SecureLink> _secure(RawSocket socket, SecurityContext context) async {
-    final SecureLink tls;
+  /// The TLS handshake over [plain]. One given up on never completes once [open] closed [plain].
+  Future<RawSecureSocket> _secure(RawSocket plain, SecurityContext context) async {
     try {
-      tls = SecureLink(await _handshake(socket, context), socket);
+      return await _stage(
+        RawSecureSocket.secure(plain, context: context, onBadCertificate: _accept),
+        discard: (tls) => tls.close().ignore(),
+        onTimeout: () => TvTimeoutException('$target accepted the connection but did not finish TLS within $timeout'),
+      );
     } on IOException catch (e) {
-      if (_cancelled) throw _cancelledError(e);
       if (_mismatch) throw _wrongTv(e);
       if (_closedByPeer(e)) throw TvClosedException('$target closed the connection during the TLS handshake', cause: e);
       throw TvProtocolException('The TLS handshake with $target failed', cause: e);
     }
-    if (_cancelled) {
-      tls.destroy();
-      throw _cancelledError();
-    }
-    // onBadCertificate runs only for certificates that fail verification, which every self-signed one does here;
-    // checked again in case one ever passes.
-    final certificate = tls.peerCertificate;
-    if (pin != null && (certificate == null || !_presentsPin(certificate))) {
-      tls.destroy();
-      throw _wrongTv();
-    }
-    return tls;
   }
 
-  /// The TLS handshake within [timeout], racing [cancel]. One given up on ends with its plain socket closed.
-  Future<RawSecureSocket> _handshake(RawSocket socket, SecurityContext context) async {
-    final secured = RawSecureSocket.secure(socket, context: context, onBadCertificate: _accept);
-    final cancelled = _cancel.future.then<RawSecureSocket>((_) => throw _cancelledError());
-    try {
-      return await clock.deadline(
-        Future.any([secured, cancelled]),
-        timeout,
-        () => TvTimeoutException('$target accepted the connection but did not finish TLS within $timeout'),
-      );
-    } on Object {
-      socket.close().ignore();
-      // A handshake that still finishes leaves a TLS socket nobody owns.
-      secured.then((orphan) => orphan.close(), onError: (Object _) {}).ignore();
-      rethrow;
+  /// [work] within [timeout], unless [cancel] comes first. What [work] produces after the stage was given up on goes
+  /// to [discard], so nothing it opens is left behind.
+  Future<T> _stage<T>(
+    Future<T> work, {
+    required void Function(T late) discard,
+    required TvRemoteException Function() onTimeout,
+  }) {
+    final result = Completer<T>();
+    void giveUp(Object error) {
+      if (!result.isCompleted) result.completeError(error);
     }
+
+    final timer = clock.timer(timeout, () => giveUp(onTimeout()));
+    _cancel.future.then((_) => giveUp(_cancelled)).ignore();
+    work
+        .then(
+          (value) => result.isCompleted ? discard(value) : result.complete(value),
+          onError: (Object e, StackTrace s) => result.isCompleted ? null : result.completeError(e, s),
+        )
+        .whenComplete(timer.cancel)
+        .ignore();
+    return result.future;
+  }
+
+  /// Stops a connection [task] whose lookup finished too late, and closes the socket it may still open.
+  static void _discardTask(ConnectionTask<RawSocket> task) {
+    task.cancel();
+    task.socket.then((socket) => socket.close(), onError: (Object _) {}).ignore();
+  }
+
+  TvCancelledException get _cancelled => TvCancelledException('The connection to $target was cancelled');
+
+  /// onBadCertificate runs only for certificates that fail verification, which every self-signed one does here; the
+  /// pin is checked again in case one ever passes.
+  void _checkPin(SecureLink link) {
+    final certificate = link.peerCertificate;
+    if (pin != null && (certificate == null || !_presentsPin(certificate))) throw _wrongTv();
   }
 
   /// Whether to go on with the TV's [certificate]: always without a pin, otherwise only for the pinned key.

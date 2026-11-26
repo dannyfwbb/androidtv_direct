@@ -227,6 +227,42 @@ void main() {
       await server.closed.single.timeout(const Duration(seconds: 5));
     });
 
+    test('a cancellation at any moment of the attempt: a working connection, or none left open', () async {
+      final tv = await fakeTv((c) async {
+        // Answers one frame, to show the connection works.
+        if (await c.receive(timeout: const Duration(seconds: 5)) case final frame?) {
+          c
+            ..send(frame)
+            ..flush();
+        }
+        await c.done;
+      });
+      final outcomes = <String>{};
+      for (var i = 0; i < 60; i++) {
+        final cancel = Completer<void>();
+        final attempt = TvSocket.connect(
+          InternetAddress.loopbackIPv4,
+          tv.remotePort,
+          context: client.securityContext(),
+          timeout: const Duration(seconds: 5),
+          cancelOn: cancel.future,
+        );
+        // From before the TCP connection to after the handshake, in steps of a fraction of a millisecond.
+        Timer(Duration(microseconds: i * 150), cancel.complete);
+        try {
+          final socket = await attempt;
+          outcomes.add('connected');
+          socket.send(Uint8List.fromList([i]), kind: 'echo');
+          expect(await socket.receive(timeout: const Duration(seconds: 5)), [i]);
+          await socket.close();
+        } on TvCancelledException {
+          outcomes.add('cancelled');
+        }
+      }
+      await until(() => tv.openConnections == 0);
+      expect(outcomes, containsAll(['connected', 'cancelled']), reason: 'the cancellations should hit both sides');
+    });
+
     test('a cancellation after the connection opened changes nothing', () async {
       final tv = await fakeTv((c) async {
         await Future<void>.delayed(const Duration(milliseconds: 50));

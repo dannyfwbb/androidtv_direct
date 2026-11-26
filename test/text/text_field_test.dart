@@ -298,9 +298,9 @@ void main() {
     expect((field.text, field.selection, field.isFocused), ('first', (start: 2, end: 2), false));
   });
 
-  test('a step that cannot go out from a timer fails the waiting setText instead of escaping', () async {
-    // Lost Del keys stall the deletion, and the give-up timer sends them again: here after the session ended but
-    // before the field heard of it.
+  test('the end of the session stops the field at once: a timer due right after it sends nothing', () async {
+    // Lost Del keys stall the deletion, and the give-up timer would send them again: here it is due right after the
+    // session ended, before anything else could run.
     final field = await focus(FakeField(text: 'abcdef', loseDels: 2, honoursRanges: false));
     final cleared = field.setText('');
     await fake.received<TextEditMessage>();
