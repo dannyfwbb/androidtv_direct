@@ -28,6 +28,15 @@ void main() {
     return remote.textField!;
   }
 
+  /// Lets the session find out that the TV does not take ranges: a field ignores one, keys follow.
+  Future<void> learnKeysOnly() async {
+    final field = await focus(FakeField(text: 'x', honoursRanges: false));
+    final cleared = field.setText('');
+    await fake.received<TextEditMessage>();
+    clock.advance(const Duration(milliseconds: 1500));
+    expect(await cleared, '');
+  }
+
   setUp(connect);
 
   test('setText types into an empty field', () async {
@@ -38,20 +47,69 @@ void main() {
     expect(tvField.text, 'Привет, мир 👍🏽');
   });
 
-  test('setText replaces what differs, deleting whole characters as the user sees them', () async {
+  test('setText replaces what differs with one edit naming the range', () async {
     final tvField = FakeField(text: 'ok 👍🏽 fine');
     final field = await focus(tvField);
     expect(await field.setText('ok 👌'), 'ok 👌');
-    final dels = fake.fromClient.whereType<KeyMessage>().where((k) => k.code == TvKey.del.code);
-    expect(dels, hasLength(6), reason: '"👍🏽 fine" is six characters');
+    expect(fake.fromClient.whereType<KeyMessage>(), isEmpty, reason: 'no Del keys');
+    final edits = fake.fromClient.whereType<TextEditMessage>().map((e) => e.changes.single.replacement!);
+    expect(edits.map((r) => (r.start, r.end, r.text)), [(3, 12, '👌')]);
   });
 
-  test('a cursor away from the end is moved there first', () async {
-    final tvField = FakeField(text: 'hello', cursor: 2);
+  test('a replacement that keeps the length goes in two edits, so the TV reports both', () async {
+    final field = await focus(FakeField(text: 'hello_world'));
+    expect(await field.setText('hello_there'), 'hello_there');
+    final edits = fake.fromClient.whereType<TextEditMessage>().map((e) => e.changes.single.replacement!);
+    expect(edits.map((r) => (r.start, r.end, r.text)), [(6, 11, ''), (5, 6, '_there')]);
+  });
+
+  test('a TV that inserts edits at the cursor gets Del keys, whole characters as the user sees them', () async {
+    final tvField = FakeField(text: 'ok 👍🏽 fine', honoursRanges: false);
     final field = await focus(tvField);
+    expect(await field.setText('ok 👌'), 'ok 👌');
+    final dels = fake.fromClient.whereType<KeyMessage>().where((k) => k.code == TvKey.del.code);
+    expect(dels, hasLength(7), reason: '"👍🏽 fine👌" is seven characters: the misplaced insert goes too');
+  });
+
+  test('a TV that ignores an edit with a range gets Del keys after one stall', () async {
+    final tvField = FakeField(text: 'abc', honoursRanges: false);
+    final field = await focus(tvField);
+    final result = field.setText('a');
+    await fake.received<TextEditMessage>();
+    clock.advance(const Duration(milliseconds: 1500));
+    expect(await result, 'a');
+    expect(fake.fromClient.whereType<KeyMessage>().where((k) => k.code == TvKey.del.code), hasLength(2));
+  });
+
+  test('a long text is emptied with one edit', () async {
+    final field = await focus(FakeField(text: 'x' * 5000));
+    expect(await field.setText(''), '');
+    expect(fake.fromClient.whereType<TextEditMessage>(), hasLength(1));
+  });
+
+  test('a cursor away from the end does not matter to edits with a range', () async {
+    for (final cursor in [0, 2, 3, 5]) {
+      final field = await focus(FakeField(text: 'hello', cursor: cursor));
+      expect(await field.setText('help'), 'help', reason: 'cursor at $cursor');
+      expect(await field.setText(''), '', reason: 'cursor at $cursor');
+    }
+    expect(fake.fromClient.whereType<KeyMessage>(), isEmpty, reason: 'no Move End, no Del');
+  });
+
+  test('once one field found the TV ignores ranges, later fields start with keys', () async {
+    await learnKeysOnly();
+    final field = await focus(FakeField(text: 'abc', honoursRanges: false));
+    expect(await field.setText('a'), 'a');
+    expect(fake.fromClient.whereType<TextEditMessage>(), hasLength(1), reason: 'only the first field tried a range');
+  });
+
+  test('with keys, a cursor away from the end is moved there first', () async {
+    await learnKeysOnly();
+    final keysBefore = fake.fromClient.whereType<KeyMessage>().length;
+    final field = await focus(FakeField(text: 'hello', cursor: 2, honoursRanges: false));
     final result = field.setText('help');
-    await fake.received<KeyMessage>();
-    expect(fake.fromClient.whereType<KeyMessage>().first.code, TvKey.moveEnd.code);
+    await fake.received<KeyMessage>(count: keysBefore + 1);
+    expect(fake.fromClient.whereType<KeyMessage>().elementAt(keysBefore).code, TvKey.moveEnd.code);
     // No report of the cursor (as on the emulator): the edit goes out after a short wait.
     clock.advance(const Duration(milliseconds: 300));
     expect(await result, 'help');
@@ -62,7 +120,7 @@ void main() {
     final field = await focus(tvField);
     final results = await Future.wait([field.setText('a'), field.setText('ab'), field.setText('abc')]);
     expect(results, ['abc', 'abc', 'abc']);
-    expect(fake.fromClient.whereType<TextEditMessage>().map((e) => e.changes.single.replacement!.text), ['a', 'bc']);
+    expect(fake.fromClient.whereType<TextEditMessage>().map((e) => e.changes.single.replacement!.text), ['a', 'abc']);
     expect(tvField.dropped, isEmpty);
   });
 
@@ -70,10 +128,15 @@ void main() {
     final tvField = FakeField(mode: FieldMode.replace);
     final field = await focus(tvField);
     await field.setText('ab');
+    // "bc" in place of "ab" keeps the length, which the TV does not report: the edit stalls, keys follow.
+    final edits = fake.fromClient.whereType<TextEditMessage>().length;
     final first = field.setText('abc');
+    await fake.received<TextEditMessage>(count: edits + 1);
+    clock.advance(const Duration(milliseconds: 1500));
+    await fake.received<TextEditMessage>(count: edits + 2);
     await until(() => field.text == 'c');
     clock.advance(const Duration(milliseconds: 1500));
-    expect(await first, 'c', reason: 'the field replaced "ab" with "c"; setText gives what the TV has');
+    expect(await first, 'c', reason: 'the field replaced its text with "c"; setText gives what it has');
     expect(await field.setText('abc'), 'abc');
   });
 
@@ -90,9 +153,11 @@ void main() {
   });
 
   test('Del keys the TV loses are sent again once the reports stall', () async {
-    final tvField = FakeField(text: 'abcdef', loseDels: 2);
+    final tvField = FakeField(text: 'abcdef', loseDels: 2, honoursRanges: false);
     final field = await focus(tvField);
     final result = field.setText('');
+    await fake.received<TextEditMessage>();
+    clock.advance(const Duration(milliseconds: 1500));
     await until(() => field.text == 'ab');
     clock.advance(const Duration(milliseconds: 1500));
     expect(await result, '');
@@ -171,17 +236,20 @@ void main() {
   });
 
   test('more than 30 Del keys go out in batches, each after the last is reported', () async {
-    final tvField = FakeField(text: 'x' * 70);
+    final tvField = FakeField(text: 'x' * 70, honoursRanges: false);
     final field = await focus(tvField);
-    expect(await field.setText(''), '');
+    final result = field.setText('');
+    await fake.received<TextEditMessage>();
+    clock.advance(const Duration(milliseconds: 1500));
+    expect(await result, '');
     expect(fake.fromClient.whereType<KeyMessage>().where((k) => k.code == TvKey.del.code), hasLength(70));
   });
 
   test('a deletion that keeps stalling gives way to the TV text after three tries', () async {
-    final tvField = FakeField(text: 'abcd', loseDels: 100);
+    final tvField = FakeField(text: 'abcd', loseDels: 100, honoursRanges: false);
     final field = await focus(tvField);
     final result = field.setText('');
-    for (var i = 0; i < 4; i++) {
+    for (var i = 0; i < 5; i++) {
       await until(() => clock.pendingTimers > 1);
       clock.advance(const Duration(milliseconds: 1500));
       await Future<void>.delayed(const Duration(milliseconds: 20));
@@ -196,11 +264,13 @@ void main() {
     expect(fake.fromClient.whereType<TextEditMessage>(), isEmpty);
   });
 
-  test('a selected range or a cursor away from the end: Move End, its report, then the edit', () async {
-    final tvField = FakeField(text: 'hello', cursor: 1, reportCursorMoves: true);
+  test('with keys, a cursor away from the end: Move End, its report, then the edit', () async {
+    await learnKeysOnly();
+    final keysBefore = fake.fromClient.whereType<KeyMessage>().length;
+    final tvField = FakeField(text: 'hello', cursor: 1, reportCursorMoves: true, honoursRanges: false);
     final field = await focus(tvField);
     expect(await field.setText('help'), 'help');
-    final keys = fake.fromClient.whereType<KeyMessage>().map((k) => k.code).toList();
+    final keys = fake.fromClient.whereType<KeyMessage>().skip(keysBefore).map((k) => k.code).toList();
     expect(keys.first, TvKey.moveEnd.code);
     expect(tvField.dropped, isEmpty, reason: 'the edit waited for the revision the cursor report brought');
   });

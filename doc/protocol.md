@@ -179,9 +179,13 @@ The TV reports the field that has the focus and its changes; the client sends ed
 
 Field status: 1 the field's revision, 2 the whole text, 3 selection start, 4 selection end (the cursor), 5 (unknown). Positions count UTF-16 code units, as Android's and Dart's `String` indices do.
 
-An edit from the client is message 21 with 1 the keyboard revision and 2 the field revision from the TV's last report on that field, and 3 one edit: 1 = 1 (insert), 2 = {1 position, 2 position, 3 text}, both positions being the inserted text's length. What the TV does with it:
+An edit from the client is message 21 with 1 the keyboard revision and 2 the field revision from the TV's last report on that field, and 3 one edit: 1 = 1, 2 = {1 start, 2 end, 3 text}. What the TV (the emulator, remote service 7.00) does with it:
 
-- The text is **inserted at the cursor**; the field is not replaced. To replace text, delete it first with the Delete key (key code 67, which deletes before the cursor), once per character as the user sees it. When the cursor is not at the end of the field, the package moves it there first.
+- Text from `start` to `end` is replaced by the edit's text, wherever the cursor is, and the cursor goes to the end of the new text. An end past the field's end counts as its end.
+- An empty range (`start` = `end`) inserts at the cursor instead, whatever the positions say.
+- An empty text whose range starts exactly at the cursor does nothing.
+- The TV reports a change only when the text's length changes: a replacement of the same length is applied silently.
+- Delete (key code 67) deletes before the cursor, once per character as the user sees it. Delete keys sent in quick succession were seen to be lost. The cursor keys, Move End and Move Home sent through the remote did not move the field's cursor.
 - The edit is accepted only with the field's **current revisions**, and every accepted edit or deletion changes the field revision. The new revision arrives with the TV's next report of the field. An edit sent before that report is dropped without an error. The package therefore keeps one change in flight and sends what the user typed in the meantime as one edit after the report.
 - The revisions to use are those of the focus report (message 20); the keyboard report's are only a fallback. Some TVs ignore edits made with the latter.
 - Some apps' fields replace their content with each edit instead of inserting. The package works from the content the TV reports, not from what it sent, so both kinds end up with the requested text.

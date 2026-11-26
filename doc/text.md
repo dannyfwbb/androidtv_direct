@@ -29,15 +29,15 @@ field?.submit();                                // the field's action key (Searc
 
 `await field.setText('text')` brings the TV's field to the given text and completes with the field's text once the TV has reported it. How:
 
-1. The TV **inserts** what the client sends at its cursor; it has no "set the whole field" message. So the package keeps the client's wanted text and the TV's reported text, and turns one into the other: Del keys for what differs at the end, then one insert for the rest. Del keys count characters as the user sees them (an emoji with a skin tone is one; one Del removes it whole).
-2. If the TV reports the cursor away from the end (or a selected range), the package sends Move End first and waits for the TV's report of the cursor, or 300 ms (the emulator did not report cursor moves). In a multi-line field Move End goes to the end of the cursor's line. This path has not been seen on a TV yet: the emulator always reported the cursor at the end.
+1. An edit names a range of the field and the text that replaces it. The package keeps the client's wanted text and the TV's reported text, and replaces what differs after their common beginning, up to the end, with one edit. Ranges are counted in UTF-16 code units and cut between characters as the user sees them (an emoji with a skin tone is never split). The cursor's place does not matter: the TV replaces the range wherever the cursor is.
+2. The TV has three exceptions, which the package steers around. An empty range inserts at the cursor rather than at its position, so text added at the end replaces the last character as well. An empty replacement that starts exactly at the cursor is ignored, so such a deletion takes the character before it along (or, at the very start of the field, first puts a placeholder that the next step removes). A change that keeps the text's length is applied but not reported, so it is split in two: the deletion, then the insertion.
 3. One step is in flight at a time: the TV accepts an edit only with the field's current revision, which changes with every edit and arrives with the TV's next report. What is wanted meanwhile (calls to `setText` while one runs, as when it is bound to a text box the user types in) is gathered and sent as the next step; all those calls complete together.
-4. Del keys go out at most 30 per step; a TV flooded with a few hundred at once was seen to lose some.
-5. When an awaited report does not come within `textGiveUp` (1.5 s, a `TvRemote.connect` argument): a deletion is planned again from the TV's text (a lost key), up to three times; an insertion gives way to the TV's text, because the field filtered or limited what was typed. `setText` then completes with the TV's text, which differs from the one asked for, and `changes` reports it.
+4. Each edit is answered by one report. A report other than the planned one means the field filtered or limited what was typed: the TV's text wins, `setText` completes with it, and `changes` reports it.
+5. A TV that does not take ranges (it does not answer an edit with a range within `textGiveUp`, 1.5 s by default, or inserts it at the cursor) gets keys for the rest of the session: Del keys for what differs at the end (at most 30 per step, since a TV flooded with a few hundred was seen to lose some; a stalled deletion is planned again from the TV's text up to three times), then one insert at the cursor. Keys assume the cursor at the end, so if the TV reports it elsewhere the package sends Move End first and waits for the TV's report of the cursor, or 300 ms.
 
-Some apps' fields replace their whole text with each edit instead of inserting. `setText` then ends at what the TV has, and calling it again reaches the wanted text (it deletes and types the whole text).
+Some apps' fields replace their whole text with each edit instead of inserting. `setText` then ends at what the TV has, and calling it again reaches the wanted text.
 
-Every failure of `setText` comes through its future: `TvCancelledException` when the field lost the focus, `TvNotSupportedException` without `TvFeature.ime` and `TvFeature.key` (Del and Move End are keys), and what ended the session. `insert` and `submit` throw the same synchronously.
+Every failure of `setText` comes through its future: `TvCancelledException` when the field lost the focus, `TvNotSupportedException` without `TvFeature.ime` and `TvFeature.key` (a TV without ranges gets Del and Move End, which are keys), and what ended the session. `insert` and `submit` throw the same synchronously.
 
 ## Binding to a text box (Flutter)
 
@@ -103,6 +103,6 @@ class _TvTextBoxState extends State<TvTextBox> {
 
 ## Behaviour seen on the Android TV emulator (remote service 7.00)
 
-- Cyrillic, emoji with skin tones and 200 characters at once arrive intact; a 200-character text was deleted key by key in about 3 seconds.
-- The cursor keys and Move Home did not change the selection the TV reports; the TV reports the cursor at the end after every edit.
+- Cyrillic, combining accents, emoji with skin tones, family emoji, flags, right-to-left text, tabs and line breaks arrive intact. Any `setText`, including emptying a 2000-character field, takes tens of milliseconds; the same deletion by Del keys took over a minute, since the TV lost keys sent in quick succession.
+- The cursor keys, Move End and Move Home sent through the remote did not move the field's cursor, and the TV does not report cursor moves; after an edit the cursor is at the end of the replaced range.
 - An edit sent while no field has the focus is dropped silently; the session goes on.

@@ -23,18 +23,21 @@ typedef TvSelection = ({int start, int end});
 /// field took other than the one asked for. A new focus gives a new [TvTextField]; this one then stops ([isFocused]
 /// false, its values frozen), and a [setText] still waiting fails with [TvCancelledException].
 final class TvTextField {
-  TvTextField._(this._session, this.giveUpAfter) : kind = _session.field.kind {
-    _sync.reset(_session.field.text);
+  TvTextField._(this._session, this.giveUpAfter, this._input)
+    : kind = _session.field.kind,
+      _sync = TextSync(byRange: _input._takesRanges) {
     _copyTracker();
+    _sync.reset(_session.field.text, cursor: _selection.end);
   }
 
   static const TvCancelledException _lostFocus = TvCancelledException('The text field lost the focus');
 
-  /// How long Move End waits for the TV's report of the cursor before the edit goes out anyway.
+  /// How long Move End waits for the TV's report of the cursor before keys go out anyway.
   static const Duration _moveEndWait = Duration(milliseconds: 300);
 
   final RemoteSession _session;
-  final TextSync _sync = TextSync();
+  final TextInput _input;
+  final TextSync _sync;
   final StreamController<String> _changes = StreamController.broadcast();
   final StreamController<bool> _keyboardChanges = StreamController.broadcast();
   final List<Completer<String>> _waiting = [];
@@ -44,8 +47,9 @@ final class TvTextField {
   bool _keyboardOpen = false;
   String? _afterMove;
 
-  /// How long [setText] waits for an awaited report. Then a deletion is tried again from the TV's text (TVs may lose
-  /// keys), and an insertion gives way to the TV's text (the field filtered or limited it).
+  /// How long [setText] waits for an awaited report. Then an edit with a range goes again as keys (the TV does not
+  /// take ranges), a deletion by Del keys is tried again from the TV's text (TVs may lose keys), and an insertion
+  /// gives way to the TV's text (the field filtered or limited it).
   final Duration giveUpAfter;
 
   /// What the field takes: password, several lines, its action key.
@@ -72,11 +76,12 @@ final class TvTextField {
 
   /// Brings the TV's field to [value], and completes with the field's text once the TV reported it.
   ///
-  /// Moves the cursor to the end if the TV reports it elsewhere (in a multi-line field, to the end of its line),
-  /// deletes what differs from [value] at the end with Del keys and inserts the rest, one step at a time, each after
-  /// the TV's report of the last. Calls made meanwhile replace the wanted text and complete together. When an
-  /// insertion's report does not come within [giveUpAfter] (the field filters or limits its input), completes with the
-  /// TV's text as it is, which may differ from [value].
+  /// Replaces what differs from [value] after their common beginning with edits that name the range they replace, so
+  /// the cursor's place does not matter, one step at a time, each after the TV's report of the last. A TV that does
+  /// not take such edits gets Del keys and inserts at the cursor instead, after moving the cursor to the end if the TV
+  /// reports it elsewhere. Calls made meanwhile replace the wanted text and complete together. When the field takes
+  /// something else (it filters or limits its input), completes with the TV's text as it is, which may differ from
+  /// [value].
   ///
   /// Every failure comes through the returned future: [TvCancelledException] when the field lost the focus,
   /// [TvNotSupportedException] without [TvFeature.ime] and [TvFeature.key], and what ended the session.
@@ -84,7 +89,7 @@ final class TvTextField {
     _checkUsable();
     final done = Completer<String>();
     _waiting.add(done);
-    if (_afterMove != null || _cursorAway) {
+    if (_afterMove != null || (!_sync.byRange && _cursorAway)) {
       _moveCursorToEnd(value);
     } else {
       _apply((adopt: null, send: _sync.want(value)));
@@ -96,13 +101,22 @@ final class TvTextField {
   /// the TV's report of the result arrives on [changes]. Throws as [setText] does, synchronously.
   void insert(String value) {
     _checkUsable();
+    _sendEdit(_selection.end, _selection.end, value);
+  }
+
+  /// Sends one text edit: [text] in place of the range from [start] to [end] (an empty range inserts at the cursor).
+  void _sendEdit(int start, int end, String text) {
     final field = _session.field;
-    final replacement = TextReplacement(start: value.length, end: value.length, text: value);
     _session.send(
       TextEditMessage(
         keyboardRevision: field.keyboardRevision,
         fieldRevision: field.fieldRevision,
-        changes: [TextChange(kind: TextChangeKind.insert, replacement: replacement)],
+        changes: [
+          TextChange(
+            kind: TextChangeKind.insert,
+            replacement: TextReplacement(start: start, end: end, text: text),
+          ),
+        ],
       ),
     );
   }
@@ -139,11 +153,9 @@ final class TvTextField {
 
   void _onContent() {
     _copyTracker();
-    if (_afterMove != null) {
-      _sync.report(_session.field.text);
-      return _afterCursorMoved();
-    }
-    _apply(_sync.report(_session.field.text));
+    final report = _sync.report(_session.field.text, cursor: _selection.end);
+    if (_afterMove != null) return _afterCursorMoved();
+    _apply(report);
   }
 
   void _onKeyboard() {
@@ -155,6 +167,8 @@ final class TvTextField {
 
   /// Takes what the sync decided: a text to adopt, a step to send; completes the waiters once settled.
   void _apply(SyncOutcome result) {
+    // Whether the TV takes ranges is the TV's, not the field's: later fields start with what this one found.
+    if (!_sync.byRange) _input._takesRanges = false;
     if (result.adopt != null) _changes.add(result.adopt!);
     final step = result.send;
     if (step != null) {
@@ -170,9 +184,15 @@ final class TvTextField {
   }
 
   void _sendStep(TextStep step) {
-    if (step.deletes == 0) return insert(step.insert);
-    for (var i = 0; i < step.deletes; i++) {
-      sendKey(_session, TvKey.del.code, TvKeyAction.press);
+    switch (step) {
+      case TextReplace(:final start, :final end, :final text):
+        _sendEdit(start, end, text);
+      case TextKeys(deletes: 0, :final insert):
+        _sendEdit(_selection.end, _selection.end, insert);
+      case TextKeys(:final deletes):
+        for (var i = 0; i < deletes; i++) {
+          sendKey(_session, TvKey.del.code, TvKeyAction.press);
+        }
     }
   }
 
@@ -205,7 +225,7 @@ final class TvTextField {
 final class TextInput {
   /// Follows [_session]'s field reports; every field gives up after [_giveUpAfter].
   TextInput(this._session, this._giveUpAfter) {
-    if (_session.field.focused) _current = TvTextField._(_session, _giveUpAfter);
+    if (_session.field.focused) _current = TvTextField._(_session, _giveUpAfter, this);
     _events = _session.fieldEvents.listen(_onEvent);
     unawaited(_session.done.then(_end));
   }
@@ -215,6 +235,9 @@ final class TextInput {
   final StreamController<TvTextField?> _focus = StreamController.broadcast();
   late final StreamSubscription<FieldEvent> _events;
   TvTextField? _current;
+
+  /// Whether the TV takes text edits with a range; `false` once a field found it does not.
+  bool _takesRanges = true;
 
   /// The focused field, or `null`.
   TvTextField? get current => _current;
@@ -232,7 +255,7 @@ final class TextInput {
     switch (event) {
       case FieldEvent.focused:
         _current?._stop();
-        _current = TvTextField._(_session, _giveUpAfter);
+        _current = TvTextField._(_session, _giveUpAfter, this);
         _focus.add(_current);
       case FieldEvent.unfocused:
         _current?._stop();

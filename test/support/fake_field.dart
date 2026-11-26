@@ -17,8 +17,10 @@ enum FieldMode {
 }
 
 /// A text field on the fake TV, behaving as the emulator's did: edits only with the current revisions (others are
-/// dropped silently), a field report after every change, Del deletes the character before the cursor, Move End
-/// moves the cursor without a report.
+/// dropped silently); an edit with an empty range inserts at the cursor, one with a range replaces it, except an empty
+/// replacement that starts at the cursor, which does nothing; a field report after every change of the length (one
+/// that keeps it is silent); Del deletes the character before the cursor; Move End moves the cursor without a
+/// report.
 final class FakeField {
   /// A field with [text] and the cursor at [cursor] (default: the end).
   FakeField({
@@ -29,6 +31,7 @@ final class FakeField {
     this.reject = '',
     this.loseDels = 0,
     this.reportCursorMoves = false,
+    this.honoursRanges = true,
   }) : cursor = cursor ?? text.length;
 
   /// The field's text.
@@ -51,6 +54,9 @@ final class FakeField {
 
   /// Whether a cursor move is reported (with a new revision); the emulator did not report one.
   final bool reportCursorMoves;
+
+  /// Whether an edit's range is replaced; without, every edit inserts at the cursor (a TV that ignores ranges).
+  final bool honoursRanges;
 
   /// The keyboard revision edits must carry.
   final int keyboardRevision = 7;
@@ -96,14 +102,26 @@ final class FakeField {
       dropped.add(edit);
       return null;
     }
-    final typed = (edit.changes.single.replacement?.text ?? '').characters.where((c) => !reject.contains(c)).join();
+    final replacement = edit.changes.single.replacement;
+    final typed = (replacement?.text ?? '').characters.where((c) => !reject.contains(c)).join();
+    final (start, end) = (replacement?.start ?? cursor, replacement?.end ?? cursor);
+    final ranged = honoursRanges && start < end;
+    if (ranged && typed.isEmpty && start == cursor) return null;
     final (next, nextCursor) = switch (mode) {
       FieldMode.replace => (typed, typed.length),
+      FieldMode.insert when ranged => _replaced(start, min(end, text.length), typed),
       FieldMode.insert => (text.substring(0, cursor) + typed + text.substring(cursor), cursor + typed.length),
     };
+    final before = text.length;
     text = maxLength == null ? next : next.characters.take(maxLength!).string;
     cursor = min(nextCursor, text.length);
+    if (text.length == before) return null;
     return _changed();
+  }
+
+  (String, int) _replaced(int start, int end, String typed) {
+    final from = min(start, text.length);
+    return (text.substring(0, from) + typed + text.substring(end), from + typed.length);
   }
 
   /// A change made on the TV itself (its own keyboard).
