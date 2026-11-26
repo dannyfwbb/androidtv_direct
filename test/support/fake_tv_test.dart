@@ -116,11 +116,12 @@ void main() {
   });
 
   for (final mode in FakeTvChunking.values) {
-    test('${mode.name} chunking delivers the same messages in its own pieces', () async {
+    test('${mode.name} chunking writes the same messages in its own pieces', () async {
+      late FakeTvConnection connection;
       final tv = await FakeTv.start(
         trusted: [client],
         onRemote: (c) {
-          c.chunking = mode;
+          connection = c..chunking = mode;
           return c.run([FakeTvSend(Uint8List(50)), FakeTvSend(Uint8List(50)), const FakeTvClose()]);
         },
       );
@@ -129,10 +130,13 @@ void main() {
       await remote.closed.future.timeout(const Duration(seconds: 5));
       expect(remote.frames.map(hexEncode), [hexEncode(Uint8List(50)), hexEncode(Uint8List(50))]);
       expect(remote.chunkSizes.fold(0, (a, b) => a + b), 102);
-      // How reads split is up to the network stack, which merges pieces on a busy machine: only the extremes are
-      // certain enough to check.
-      if (mode == FakeTvChunking.coalesce) expect(remote.chunkSizes, [102]);
-      if (mode == FakeTvChunking.bytes) expect(remote.chunkSizes.length, greaterThan(1));
+      // The fake's own writes; how the client's reads split them is up to the network stacks (Windows merged even
+      // single bytes written one by one).
+      expect(connection.writes, switch (mode) {
+        FakeTvChunking.none => [51, 51],
+        FakeTvChunking.coalesce => [102],
+        FakeTvChunking.bytes => List.filled(102, 1),
+      });
     });
   }
 }

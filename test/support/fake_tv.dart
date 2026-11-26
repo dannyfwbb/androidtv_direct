@@ -189,6 +189,9 @@ final class FakeTvConnection {
   /// How writes reach the socket. Each write is flushed before the next, so the client sees the pieces apart.
   FakeTvChunking chunking = FakeTvChunking.current;
 
+  /// The sizes of the writes to the socket, in order. How the client's reads split them is up to the network stacks.
+  final List<int> writes = [];
+
   /// How long what is sent takes to reach the client, counted from when it was sent (a slow network).
   Duration latency = Duration.zero;
 
@@ -301,6 +304,7 @@ final class FakeTvConnection {
       for (final piece in pieces) {
         if (_done.isCompleted) return;
         _socket.add(piece);
+        writes.add(piece.length);
         await _socket.flush();
         // A timer turn lets the client's read event run before the next piece, so the pieces arrive apart.
         await Future<void>.delayed(Duration.zero);
