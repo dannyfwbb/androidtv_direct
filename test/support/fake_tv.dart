@@ -229,8 +229,11 @@ final class FakeTvConnection {
     _subscription.pause();
   }
 
-  /// Sends what is pending and closes the connection.
-  Future<void> close() async {
+  /// Sends what is pending and closes the connection; later calls wait for the first.
+  Future<void> close() => _closing ??= _close();
+  Future<void>? _closing;
+
+  Future<void> _close() async {
     _flush();
     await _writes;
     await _subscription.cancel();
@@ -256,7 +259,8 @@ final class FakeTvConnection {
   }
 
   void _flush() {
-    if (_pending.isEmpty || _done.isCompleted || _frozen) return;
+    // Once closing has started, nothing more is written: close waits for the writes queued until then.
+    if (_pending.isEmpty || _done.isCompleted || _frozen || _closing != null) return;
     final bytes = Uint8List.fromList(_pending);
     _pending.clear();
     final pieces = chunking == FakeTvChunking.bytes
