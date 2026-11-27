@@ -2,7 +2,11 @@
 
 A remote control for Android TV and Google TV devices in pure Dart. It speaks the TV's own remote protocol (the one Google's TV remote apps use) directly: no app on the TV, no developer options, no ADB, no platform channels, no native code. One `dart:io` implementation for Android, iOS, macOS, Windows and Linux.
 
-> **Status: not yet published.** Everything below is built and tested against a fake TV. Pairing, the session, keys, power, volume, links, text and the voice sequence were also run on the Android TV emulator and on a Philips Android TV ([doc/compatibility.md](doc/compatibility.md)); discovery against a local mDNS responder and a real TV's announcement. More TVs, older ones in particular, and speech recognition are still to be checked before 1.0. [doc/scope.md](doc/scope.md) shows the state of every area. Names may still change before the first release.
+Tested against a fake TV with recorded byte exchanges, on the Android TV emulator and on a Philips Android TV ([doc/compatibility.md](doc/compatibility.md) lists what was checked where). [doc/scope.md](doc/scope.md) shows every area the package covers.
+
+```
+dart pub add androidtv_direct
+```
 
 ```dart
 import 'package:androidtv_direct/androidtv_direct.dart';

@@ -10,69 +10,69 @@ States: **planned** (designed, not written), **in progress**, **built** (impleme
 
 | Area | State |
 | --- | --- |
-| The client's RSA key and self-signed certificate: generate, export and import as PEM | built |
-| Pairing with the six-character code the TV shows; the code checked before anything is sent | built |
-| The TV's key fingerprint from pairing, for pinning | built |
-| Cancelling a pairing (the TV closes its dialog) | built |
-| What the TV's certificate says (model, network address details) without pairing, if it shows nothing on the TV | built (nothing appears on the TV) |
+| The client's RSA key and self-signed certificate: generate, export and import as PEM | done (1.0.0) |
+| Pairing with the six-character code the TV shows; the code checked before anything is sent | done (1.0.0) |
+| The TV's key fingerprint from pairing, for pinning | done (1.0.0) |
+| Cancelling a pairing (the TV closes its dialog) | done (1.0.0) |
+| What the TV's certificate says (model, network address details) without pairing, if it shows nothing on the TV | done (1.0.0; nothing appears on the TV) |
 
 ### The session
 
 | Area | State |
 | --- | --- |
-| Connect with a paired identity; "not paired" told apart from network trouble | built |
-| Pinning: refuse a TV whose key is not the paired one, before sending anything | built |
-| Feature negotiation (keys, text, power, volume, links, voice) | built |
-| The client's own device information sent to the TV (model, maker, OS, app and version) | built (the TV only logs it) |
-| Device information (vendor, model, Android version, service version) | built |
-| Keepalive answers and detection of a TV that went away (silence in both directions) | built |
-| Deadlines on connect, start and every step; cancellation | built |
-| Raw access to messages the package does not wrap yet | built (experimental) |
+| Connect with a paired identity; "not paired" told apart from network trouble | done (1.0.0) |
+| Pinning: refuse a TV whose key is not the paired one, before sending anything | done (1.0.0) |
+| Feature negotiation (keys, text, power, volume, links, voice) | done (1.0.0) |
+| The client's own device information sent to the TV (model, maker, OS, app and version) | done (1.0.0; the TV only logs it) |
+| Device information (vendor, model, Android version, service version) | done (1.0.0) |
+| Keepalive answers and detection of a TV that went away (silence in both directions) | done (1.0.0) |
+| Deadlines on connect, start and every step; cancellation | done (1.0.0) |
+| Raw access to messages the package does not wrap yet | done (1.0.0; experimental) |
 
 ### Remote control
 
 | Area | State |
 | --- | --- |
-| Keys by name (every AOSP key code) and by number | built |
-| Short press, press and release (the TV repeats held keys) | built |
-| Power state and the power key | built |
-| Volume state (level, maximum, muted) and volume keys; setting a level | built |
+| Keys by name (every AOSP key code) and by number | done (1.0.0) |
+| Short press, press and release (the TV repeats held keys) | done (1.0.0) |
+| Power state and the power key | done (1.0.0) |
+| Volume state (level, maximum, muted) and volume keys; setting a level | done (1.0.0) |
 | Setting or adjusting the volume directly, and choosing the audio output | not offered: the emulator ignored a level request and the audio-output messages; one form of the adjust message moved the volume a step, which keys already do |
 | Wake-on-LAN with the network address from the TV's certificate | not offered: a real TV did not wake from it; the power key through a session wakes a TV in standby |
-| App links (deep links, store pages); a refused link reported as such | built |
+| App links (deep links, store pages); a refused link reported as such | done (1.0.0) |
 
 ### Text
 
 | Area | State |
 | --- | --- |
-| The focused text field as state: content, cursor, kind (password, action key), keyboard open or closed | built |
-| `setText`: bring the TV's field to the given text, any script and emoji | built |
-| Edits made on the TV with its own remote, reported back | built |
-| The field's action key (Search, Go, Done…) | built |
+| The focused text field as state: content, cursor, kind (password, action key), keyboard open or closed | done (1.0.0) |
+| `setText`: bring the TV's field to the given text, any script and emoji | done (1.0.0) |
+| Edits made on the TV with its own remote, reported back | done (1.0.0) |
+| The field's action key (Search, Go, Done…) | done (1.0.0) |
 
 ### Voice
 
 | Area | State |
 | --- | --- |
-| Voice sessions: start, stream 16-bit 8 kHz mono PCM, end, cancel | built (sessions checked on a real TV; recognition of real speech still to be checked) |
+| Voice sessions: start, stream 16-bit 8 kHz mono PCM, end, cancel | done (1.0.0; sessions checked on a real TV; recognition of real speech still to be checked) |
 
 ### Discovery
 
 | Area | State |
 | --- | --- |
-| mDNS browsing for `_androidtvremote2._tcp`, IPv4 and IPv6 | built |
-| Recognition of TVs with the older protocol (`_androidtvremote._tcp`) | built |
-| A hook for platform browsers (iOS, Android) | built (with an example adapter) |
-| A helper to probe addresses the app gives, a few at a time (which addresses stays with the app) | built |
+| mDNS browsing for `_androidtvremote2._tcp`, IPv4 and IPv6 | done (1.0.0) |
+| Recognition of TVs with the older protocol (`_androidtvremote._tcp`) | done (1.0.0) |
+| A hook for platform browsers (iOS, Android) | done (1.0.0; with an example adapter) |
+| A helper to probe addresses the app gives, a few at a time (which addresses stays with the app) | done (1.0.0) |
 
 ### Library qualities
 
 | Area | State |
 | --- | --- |
-| One sealed exception type with stable codes | built |
-| Tracing by message kind and size; payloads only on request | built |
-| A fake TV and recorded byte exchanges in the tests | built: the package's own recordings of pairing, a session, text and voice; a fake TV with pairing, session, text field and voice |
-| API documentation on every public member | built |
+| One sealed exception type with stable codes | done (1.0.0) |
+| Tracing by message kind and size; payloads only on request | done (1.0.0) |
+| A fake TV and recorded byte exchanges in the tests | done (1.0.0): the package's own recordings of pairing, a session, text and voice; a fake TV with pairing, session, text field and voice |
+| API documentation on every public member | done (1.0.0) |
 
 ## Left to the app, on purpose
 

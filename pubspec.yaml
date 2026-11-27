@@ -2,8 +2,7 @@ name: androidtv_direct
 description: >-
   A pure Dart remote control for Android TV and Google TV over the TV's own
   remote protocol: pairing, keys, power, volume, text, app links and voice.
-version: 0.0.1-dev
-publish_to: none
+version: 1.0.0
 repository: https://github.com/dannyfwbb/androidtv_direct
 issue_tracker: https://github.com/dannyfwbb/androidtv_direct/issues
 
