@@ -1,5 +1,7 @@
 # androidtv_direct
 
+[![pub package](https://img.shields.io/pub/v/androidtv_direct.svg)](https://pub.dev/packages/androidtv_direct) [![pub points](https://img.shields.io/pub/points/androidtv_direct)](https://pub.dev/packages/androidtv_direct/score) [![CI](https://github.com/dannyfwbb/androidtv_direct/actions/workflows/ci.yml/badge.svg)](https://github.com/dannyfwbb/androidtv_direct/actions/workflows/ci.yml)
+
 A remote control for Android TV and Google TV devices in pure Dart. It speaks the TV's own remote protocol (the one Google's TV remote apps use) directly: no app on the TV, no developer options, no ADB, no platform channels, no native code. One `dart:io` implementation for Android, iOS, macOS, Windows and Linux.
 
 Tested against a fake TV with recorded byte exchanges, on the Android TV emulator and on a Philips Android TV ([doc/compatibility.md](doc/compatibility.md) lists what was checked where). [doc/scope.md](doc/scope.md) shows every area the package covers.
