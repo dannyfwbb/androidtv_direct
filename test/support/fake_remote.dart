@@ -27,6 +27,7 @@ final class FakeRemote {
       fingerprint: null,
       features: features,
       clock: clock,
+      inputSettle: Duration.zero,
     );
     addTearDown(remote.close);
     return FakeRemote._(fake, clock, remote);

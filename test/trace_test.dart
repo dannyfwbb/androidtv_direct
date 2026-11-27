@@ -29,6 +29,7 @@ void main() {
       fingerprint: null,
       features: {...TvFeature.defaults, TvFeature.ime, TvFeature.voice},
       clock: FakeClock(),
+      inputSettle: Duration.zero,
       tracer: TvTracer(events.add),
     );
     addTearDown(remote.close);

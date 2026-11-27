@@ -15,7 +15,7 @@ final reason = await remote.done;   // null after remote.close(), else why it en
 
 ## Connecting
 
-`TvRemote.connect` opens TLS with the client's certificate, checks the TV's key, answers the TV's setup and activation, and returns once the TV has reported its power state. Until then it may fail with:
+`TvRemote.connect` opens TLS with the client's certificate, checks the TV's key, answers the TV's setup and activation, and returns once the TV has reported its power state and its input is ready for keys. Taking the client's setup, the TV registers a virtual input device for the session, and Android adds it some tens of milliseconds later (28 to 74 ms measured on a real TV); a key sent before that is lost without a trace, and nothing on the wire tells when it is ready. So `connect` returns no sooner than `inputSettle` (150 ms) after its setup, which mostly overlaps the rest of the start. Until then it may fail with:
 
 | Exception | When |
 | --- | --- |

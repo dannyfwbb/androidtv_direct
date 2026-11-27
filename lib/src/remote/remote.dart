@@ -40,6 +40,11 @@ final class TvRemote {
   /// The remote port.
   static const int defaultPort = 6466;
 
+  /// How long [connect] waits at least after the client's setup, so that the first key is taken: the TV registers a
+  /// virtual input device for the session then, and Android adds it some tens of milliseconds later (up to 74 ms
+  /// measured); a key sent before is lost. Twice that, as a margin.
+  static const Duration defaultInputSettle = Duration(milliseconds: 150);
+
   /// Connects to the TV at [host] with the paired [identity] and starts a session.
   ///
   /// [fingerprint] is the TV's key fingerprint from pairing (`TvPairingResult.fingerprint`): a device with another key
@@ -52,6 +57,8 @@ final class TvRemote {
   /// [TvTextField.setText] waits for the TV's report before taking the TV's text as it is; on a network slower than
   /// that the session waits as long as the TV's answers have been taking (it measures them from its start, up to
   /// `RoundTrip.ceiling`). [client] is what the TV is told about this app and device; the TV only logs it.
+  /// [inputSettle] is how long, at least, the session waits after its setup before it counts as ready, so that a key
+  /// sent at once is not lost ([defaultInputSettle]).
   ///
   /// Throws [TvUnreachableException], [TvNoServiceException], [TvWrongTvException], [TvNotPairedException] (the TV does
   /// not know [identity]), [TvTimeoutException] (no TLS within [connectTimeout], or no start within [startTimeout]),
@@ -70,6 +77,7 @@ final class TvRemote {
     Duration startTimeout = const Duration(seconds: 10),
     Duration idleTimeout = const Duration(seconds: 16),
     Duration textGiveUp = const Duration(milliseconds: 1500),
+    Duration inputSettle = defaultInputSettle,
     TvClock clock = TvClock.system,
     TvTracer? tracer,
     Future<void>? cancelOn,
@@ -78,6 +86,7 @@ final class TvRemote {
     checkPositive(startTimeout, 'startTimeout');
     checkPositive(idleTimeout, 'idleTimeout');
     checkPositive(textGiveUp, 'textGiveUp');
+    checkNotNegative(inputSettle, 'inputSettle');
     final socket = await TvSocket.connect(
       host,
       port,
@@ -88,7 +97,14 @@ final class TvRemote {
       tracer: tracer,
       cancelOn: cancelOn,
     );
-    final session = RemoteSession(socket, features, clock: clock, idleTimeout: idleTimeout, client: client);
+    final session = RemoteSession(
+      socket,
+      features,
+      clock: clock,
+      idleTimeout: idleTimeout,
+      inputSettle: inputSettle,
+      client: client,
+    );
     await cancellable(cancelOn, what: 'Connecting', abort: session.close, body: () => session.start(startTimeout));
     return TvRemote._(session, textGiveUp);
   }

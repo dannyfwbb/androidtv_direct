@@ -6,6 +6,12 @@ import 'dart:io';
 // Checks of what the public calls take, so a wrong argument fails as an ArgumentError at the call instead of as a
 // confusing failure later (a zero idle timeout ending every session, a mistyped fingerprint refusing every TV).
 
+/// [value], which must not be negative.
+Duration checkNotNegative(Duration value, String name) {
+  if (value < Duration.zero) throw ArgumentError.value('$value', name, 'must not be negative');
+  return value;
+}
+
 /// [value], which must be longer than zero (a timeout, a validity).
 Duration checkPositive(Duration value, String name) {
   if (value <= Duration.zero) throw ArgumentError.value('$value', name, 'must be longer than zero');

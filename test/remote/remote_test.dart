@@ -41,6 +41,7 @@ void main() {
     fingerprint: fingerprint ?? tvFingerprint,
     features: features,
     clock: clock,
+    inputSettle: Duration.zero,
     cancelOn: cancelOn,
     tracer: tracer,
     client: client,
@@ -83,6 +84,28 @@ void main() {
         ('Phone', 'Maker', 2, '18.1', 'app.example.remote', '2.3.4'),
       );
       await remote.close();
+    });
+
+    test('connect returns no sooner than inputSettle after its setup, so that a key sent at once is taken', () async {
+      final (tv, fake) = await fakeTv();
+      final clock = FakeClock();
+      var connected = false;
+      final connecting = TvRemote.connect(
+        InternetAddress.loopbackIPv4,
+        port: tv.remotePort,
+        identity: testClient(),
+        fingerprint: tvFingerprint,
+        clock: clock,
+        inputSettle: const Duration(milliseconds: 150),
+      ).then((remote) {
+        connected = true;
+        return remote;
+      });
+      await until(() => fake.fromClient.whereType<ActivateMessage>().isNotEmpty);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(connected, isFalse, reason: 'the TV reported its power state, but its input is not ready yet');
+      clock.advance(const Duration(milliseconds: 150));
+      await (await connecting).close();
     });
 
     test('features are what was asked and offered; power is always asked for', () async {

@@ -43,11 +43,18 @@ final class RemoteSession {
     Set<TvFeature> wanted, {
     required TvClock clock,
     required Duration idleTimeout,
+    this.inputSettle = Duration.zero,
     TvClientInfo client = TvClientInfo.standard,
   }) : _wanted = TvFeature.maskOf({...wanted, TvFeature.power}),
        _client = client.toMessage(),
        _clock = clock,
        _idleTimeout = idleTimeout;
+
+  /// How long after the client's setup [start] waits at least before the session counts as ready. Taking the setup,
+  /// the TV's remote service registers a virtual input device for the session's keys, and Android's input reader adds
+  /// it some tens of milliseconds later (28 to 74 ms on a 2021 Philips, logged over adb): a key sent before that is
+  /// lost, and a session is otherwise ready a few milliseconds after the setup. Nothing on the wire tells when.
+  final Duration inputSettle;
 
   /// What a call after [close] throws.
   static const TvCancelledException closedError = TvCancelledException('The session was closed');
@@ -67,6 +74,9 @@ final class RemoteSession {
 
   /// The feature bits agreed in the first setup.
   int? _agreed;
+
+  /// When the client's setup went out: the TV sets up its input for the session's keys then.
+  Duration? _setupSentAt;
 
   /// When the session sent a message whose answer it waits for (its setup, its activation), until the answer.
   Duration? _askedAt;
@@ -117,7 +127,8 @@ final class RemoteSession {
   /// Whether the session has ended.
   bool get isClosed => _done.isCompleted;
 
-  /// Reads until the TV reported its power state, within [timeout]; then watches for silence.
+  /// Reads until the TV reported its power state, within [timeout], and [inputSettle] has passed since the client's
+  /// setup; then watches for silence.
   ///
   /// Throws what ended the session, or [TvTimeoutException] when the TV does not start it in time. The session is
   /// closed after any failure.
@@ -133,6 +144,8 @@ final class RemoteSession {
       _end(e);
       rethrow;
     }
+    final settled = _setupSentAt! + inputSettle - _clock.elapsed;
+    if (settled > Duration.zero) await _clock.sleep(settled, cancelOn: _done.future);
     // The connection may have ended between the power report and this point.
     throwIfEnded();
     _watchdog = Watchdog(_clock, _idleTimeout, () {
@@ -213,7 +226,7 @@ final class RemoteSession {
         final agreed = _agreed = _wanted & (features ?? 0);
         _granted = TvFeature.fromMask(agreed);
         send(SetupMessage(features: agreed, device: _client));
-        _askedAt = _clock.elapsed;
+        _askedAt = _setupSentAt = _clock.elapsed;
       case SetupMessage():
         send(SetupMessage(features: _agreed, device: _client));
       case ActivateMessage():
