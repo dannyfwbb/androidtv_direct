@@ -90,17 +90,18 @@ void main() {
       final (tv, fake) = await fakeTv();
       final clock = FakeClock();
       var connected = false;
-      final connecting = TvRemote.connect(
-        InternetAddress.loopbackIPv4,
-        port: tv.remotePort,
-        identity: testClient(),
-        fingerprint: tvFingerprint,
-        clock: clock,
-        inputSettle: const Duration(milliseconds: 150),
-      ).then((remote) {
-        connected = true;
-        return remote;
-      });
+      final connecting =
+          TvRemote.connect(
+            InternetAddress.loopbackIPv4,
+            port: tv.remotePort,
+            identity: testClient(),
+            fingerprint: tvFingerprint,
+            clock: clock,
+            inputSettle: const Duration(milliseconds: 150),
+          ).then((remote) {
+            connected = true;
+            return remote;
+          });
       await until(() => fake.fromClient.whereType<ActivateMessage>().isNotEmpty);
       await Future<void>.delayed(const Duration(milliseconds: 50));
       expect(connected, isFalse, reason: 'the TV reported its power state, but its input is not ready yet');

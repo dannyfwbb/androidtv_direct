@@ -2,6 +2,7 @@
 
 - `remote/session.txt`: the package's own recording (`tool/record_fixture.dart`) of a pairing and a session with the Android TV Remote Service. The fake TV plays the TV's side from it, and a replay test checks the client's answers byte for byte.
 - `remote/text.txt`: the package's own recording of text input: a field gets the focus, the client types (Cyrillic, an emoji with a skin tone), deletes and empties it, the field loses the focus.
+- `remote/real-tv-session.txt`: the package's own recording of a session with a real TV (a 2021 Philips UHD Android TV, Android 11, the same remote service version): start, a ping, volume (its maximum is 60), Home, a voice session, and a bare package name as a link, refused with code 7 as on the emulator. Nothing in it identifies the TV: no address, no network address, no key.
 - `remote/voice.txt`: the package's own recording of a voice session: Search opens it, the client sends a sweep and closes it, the TV ends it.
 
 The tests decode every line of every recording and encode it back to the same bytes.

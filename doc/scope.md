@@ -38,7 +38,7 @@ States: **planned** (designed, not written), **in progress**, **built** (impleme
 | Power state and the power key | built |
 | Volume state (level, maximum, muted) and volume keys; setting a level | built |
 | Setting or adjusting the volume directly, and choosing the audio output | not offered: the emulator ignored a level request and the audio-output messages; one form of the adjust message moved the volume a step, which keys already do |
-| Wake-on-LAN with the network address from the TV's certificate | planned (only if real TVs wake from it) |
+| Wake-on-LAN with the network address from the TV's certificate | not offered: a real TV did not wake from it; the power key through a session wakes a TV in standby |
 | App links (deep links, store pages); a refused link reported as such | built |
 
 ### Text
@@ -54,7 +54,7 @@ States: **planned** (designed, not written), **in progress**, **built** (impleme
 
 | Area | State |
 | --- | --- |
-| Voice sessions: start, stream 16-bit 8 kHz mono PCM, end, cancel | built (recognition of real speech still to be checked on a TV) |
+| Voice sessions: start, stream 16-bit 8 kHz mono PCM, end, cancel | built (sessions checked on a real TV; recognition of real speech still to be checked) |
 
 ### Discovery
 

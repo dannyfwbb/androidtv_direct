@@ -16,8 +16,11 @@ typedef RecordedMessage = ({bool outgoing, int port, String name, Uint8List byte
 /// The path of a file under `test/fixtures/`.
 String fixturePath(String relative) => 'test/fixtures/$relative';
 
-/// The recordings under `test/fixtures/remote/`.
-const List<String> recordingFiles = ['session.txt', 'text.txt', 'voice.txt'];
+/// The recordings under `test/fixtures/remote/`: every `.txt` file there, so a new one is checked as soon as it is added.
+final List<String> recordingFiles = [
+  for (final entity in Directory(fixturePath('remote')).listSync())
+    if (entity.path.endsWith('.txt')) entity.uri.pathSegments.last,
+]..sort();
 
 /// Every message in the recording [file] under `test/fixtures/remote/`, in file order.
 List<RecordedMessage> recordedMessages([String file = 'session.txt']) => [

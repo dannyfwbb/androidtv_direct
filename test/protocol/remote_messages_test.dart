@@ -34,6 +34,17 @@ void main() {
     }
   });
 
+  test('a real TV\'s session reads as expected: its device, a volume out of 60, a refused link with code 7', () {
+    RemoteEnvelope from(String name) =>
+        RemoteEnvelope.fromTv(recorded(name, outgoing: false, file: 'real-tv-session.txt').bytes);
+    final setup = from('setup') as SetupMessage;
+    expect((setup.device!.vendor, setup.device!.androidRelease), ('TPV', '11'));
+    expect((from('volumeReport') as VolumeReport).maximum, 60);
+    final refusal = from('refusal') as RefusalMessage;
+    expect(refusal.code, RefusalCode.cannotAct);
+    expect(refusal.refusedMessage, isA<OpenLinkMessage>());
+  });
+
   test('what the client sends encodes to the recorded bytes', () {
     final sent = <(String, String), RemoteEnvelope>{
       ('setup', 'session.txt'): SetupMessage(
