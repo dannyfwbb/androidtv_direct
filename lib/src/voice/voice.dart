@@ -10,16 +10,15 @@ import 'package:androidtv_direct/src/protocol/key_codes.dart';
 import 'package:androidtv_direct/src/protocol/remote_messages.dart';
 import 'package:androidtv_direct/src/remote/features.dart';
 import 'package:androidtv_direct/src/remote/keys.dart';
-import 'package:androidtv_direct/src/remote/round_trip.dart';
 import 'package:androidtv_direct/src/remote/session.dart';
 import 'package:androidtv_direct/src/voice/chunk_queue.dart';
 
 /// The voice side of a remote session: the one owner of the TV's voice opens and ends.
 ///
-/// Search is pressed once per start, and not again while an earlier press may still be answered: each press opens
-/// one session, and a second open would have to be closed again. An open goes to the start waiting for it; one nobody
-/// waits for (it came after the start gave up) is closed again, so the TV's voice search does not stay open, unless
-/// it is the current session's. Every end is placed: the confirmation of the current session's close, the late
+/// Each start presses Search. An open goes to the start waiting for it; one nobody waits for (it came after the
+/// start gave up) is closed again, so the TV's voice search does not stay open, unless it is the current session's:
+/// a start retried after a timeout takes the late open of the first press, and the open of its own press then has
+/// the same id. Every end is placed: the confirmation of the current session's close, the late
 /// confirmation of an earlier close (the emulator sends one right after the next open, with the same id), the TV
 /// ending the current session, the confirmation of an earlier close while no session is open, or nothing.
 final class VoiceChannel extends SessionPart {
@@ -28,17 +27,10 @@ final class VoiceChannel extends SessionPart {
     _session.attach(this);
   }
 
-  /// How long a press of Search counts as on its way: until then another start waits for its open instead of
-  /// pressing again.
-  static const Duration pressAnswered = RoundTrip.ceiling;
-
   final RemoteSession _session;
   Completer<TvVoiceSession>? _starting;
   bool _pace = true;
   TvVoiceSession? _current;
-
-  /// When Search was last pressed, while no open has answered it.
-  Duration? _pressedAt;
 
   /// The closes this side sent (of sessions, or of opens nobody waited for) the TV has not confirmed yet.
   int _unconfirmedCloses = 0;
@@ -48,8 +40,7 @@ final class VoiceChannel extends SessionPart {
   Duration _lateUntil = Duration.zero;
 
   /// Presses Search and waits for the TV to open a voice session (at least [timeout], longer as long as the TV's
-  /// answers have been taking), then acknowledges it. Search is not pressed again while an earlier press may still be
-  /// answered: its open is waited for instead.
+  /// answers have been taking), then acknowledges it.
   ///
   /// Throws [TvNotSupportedException] without [TvFeature.voice] and [TvFeature.key], [StateError] while another voice
   /// session is starting or not [TvVoiceSession.done], [TvTimeoutException] when the TV does not open one in time, and
@@ -61,10 +52,7 @@ final class VoiceChannel extends SessionPart {
     if (_starting != null || _sessionOpen) throw StateError('A voice session is open');
     final starting = _starting = Completer();
     _pace = pace;
-    if (!_pressOnItsWay) {
-      sendKey(_session, TvKey.search.code, TvKeyAction.press);
-      _pressedAt = _session.clock.elapsed;
-    }
+    sendKey(_session, TvKey.search.code, TvKeyAction.press);
     final wait = _session.roundTrip.waitFor(timeout);
     try {
       return await _session.clock.deadline(
@@ -81,11 +69,6 @@ final class VoiceChannel extends SessionPart {
   bool get _sessionOpen {
     final current = _current;
     return current != null && !current.isDone;
-  }
-
-  bool get _pressOnItsWay {
-    final pressedAt = _pressedAt;
-    return pressedAt != null && _session.clock.elapsed - pressedAt < pressAnswered;
   }
 
   @override
@@ -108,7 +91,6 @@ final class VoiceChannel extends SessionPart {
   }
 
   void _onOpen(int voiceId) {
-    _pressedAt = null;
     final starting = _starting;
     _starting = null;
     if (starting != null) return _begin(starting, voiceId);
